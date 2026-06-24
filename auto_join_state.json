@@ -1,0 +1,19 @@
+{
+  "joined_links": [
+    "unftbn",
+    "aisaamed",
+    "daroushafatorghabe",
+    "xbourse62"
+  ],
+  "failed_links": {},
+  "stats": {
+    "total_joined": 4,
+    "total_failed": 0,
+    "total_already_member": 0,
+    "total_retries": 0,
+    "last_join_time": 1782263927.552188,
+    "flood_waits": 0,
+    "current_delay_multiplier": 1.0
+  },
+  "last_save": "2026-06-24T04:49:57.976378"
+}

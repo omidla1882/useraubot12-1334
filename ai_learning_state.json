@@ -1,0 +1,29 @@
+{
+  "rl_agent": {
+    "q_table": {},
+    "exploration_rate": 0.2,
+    "state_visits": {},
+    "total_actions": 0,
+    "total_reward": 0
+  },
+  "network_discovery": {
+    "high_value_keywords": [],
+    "group_count": 1
+  },
+  "quality_predictor": {
+    "feature_weights": {
+      "member_count": 0.25,
+      "has_positive_keywords": 0.3,
+      "has_location_keyword": 0.2,
+      "has_iranian_keyword": 0.15,
+      "title_length": 0.05,
+      "is_verified": 0.05
+    },
+    "history_count": 0
+  },
+  "smart_selector": {
+    "time_performance": {}
+  },
+  "saved_at": 1782263997.9554148,
+  "total_groups_joined": 17
+}

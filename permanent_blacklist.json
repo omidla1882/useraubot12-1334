@@ -1,0 +1,85 @@
+{
+  "blacklist": [
+    1494272835,
+    2055288167,
+    3516149901,
+    1748937998,
+    1534408305,
+    1173842579,
+    2315530708,
+    1832045719,
+    1773045176,
+    1116845180,
+    3400121086
+  ],
+  "reasons": {
+    "2055288167": {
+      "reason": "no_write_access",
+      "timestamp": 1782263609.543444,
+      "username": "Trustedplatform9",
+      "title": "🔥 Leggit Platform 🔥"
+    },
+    "1116845180": {
+      "reason": "no_write_access",
+      "timestamp": 1782263666.8087604,
+      "username": "mahsolate_organic_iran",
+      "title": "محصولات دارویی وغذایی ایران"
+    },
+    "1173842579": {
+      "reason": "no_write_access",
+      "timestamp": 1782263666.8090081,
+      "username": "soltandefara1",
+      "title": "سهامداران داروسازی فارابی"
+    },
+    "1494272835": {
+      "reason": "no_write_access",
+      "timestamp": 1782263666.8090603,
+      "username": "deabour",
+      "title": "سهامداران دابور(داروسازی ابوریحان)"
+    },
+    "3516149901": {
+      "reason": "no_write_access",
+      "timestamp": 1782263718.3336236,
+      "username": "daramaddollari80",
+      "title": "OPC"
+    },
+    "1832045719": {
+      "reason": "no_write_access",
+      "timestamp": 1782263718.3944871,
+      "username": "kanalmoshverawkla",
+      "title": "⚖ وکیل همراه با آرای قضایی⚖👇"
+    },
+    "1773045176": {
+      "reason": "no_write_access",
+      "timestamp": 1782263911.6305807,
+      "username": "theahmadireligionfarsi",
+      "title": "دین صلح و نور احمدی"
+    },
+    "3400121086": {
+      "reason": "no_write_access",
+      "timestamp": 1782263914.698126,
+      "username": "ABANGuelph",
+      "title": "آبان ABAN"
+    },
+    "1534408305": {
+      "reason": "no_write_access",
+      "timestamp": 1782263970.9185264,
+      "username": "kharidmelki",
+      "title": "خرید و اجاره خانه و صرافی در استانبول"
+    },
+    "2315530708": {
+      "reason": "no_write_access",
+      "timestamp": 1782263975.7351687,
+      "username": "farex_sarmaie12",
+      "title": "وام بدون ضامن و سرمایه گذاری"
+    },
+    "1748937998": {
+      "reason": "no_write_access",
+      "timestamp": 1782263975.7366693,
+      "username": "Arya_sabadgardani",
+      "title": "\"انجمن سهامداران اصلی غدانه\""
+    }
+  },
+  "last_updated": 1782263997.9776452,
+  "count": 11
+}
