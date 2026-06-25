@@ -12648,13 +12648,15 @@ _DRUG_KNOWLEDGE_FA = (
     "انسولین‌ها، مودافینیل، ترامادول و غیره — فقط اطلاعات کلی، نه توصیه شخصی."
 )
 
-# Phase 2: Extended knowledge snippets (mini index)
+# Rich knowledge base (adapted/expanded from web3test/chat/ for professional responses)
 KNOWLEDGE_SNIPPETS = [
-    ("payment", "پرداخت فقط با ارز دیجیتال انجام می‌شود (BTC, ETH, USDT-TRC20 پیشنهادی, TRX, BNB, TON, SOL, DOGE). USDT روی TRC20 سریع و ارزان است."),
-    ("shipping", "ارسال سریع به تهران، استانبول، دبی، بغداد و تورنتو اغلب زیر ۴-۸ ساعت پس از تأیید واریز. بسته‌بندی کاملاً محرمانه."),
-    ("ritalin", "متیل‌فنیدات (ریتالین، کونسرتا، ساندوز) برای ADHD و نارکولپسی استفاده می‌شود. فقط اطلاعات عمومی — دوز شخصی توسط پزشک تعیین می‌شود."),
-    ("semaglutide", "سماگلوتاید (اوزمپیک، ویگوی) برای دیابت نوع ۲ و مدیریت وزن. مکمل رژیم و ورزش است."),
-    ("order", "برای سفارش: وارد سایت medpharmaweb.com شوید، دارو انتخاب کنید، در checkout آدرس و ارز را انتخاب کنید و واریز کنید."),
+    ("payment", "پرداخت فقط با ارز دیجیتال: BTC، ETH، USDT (TRC20 پیشنهادی - کمترین کارمزد)، TRX، BNB، TON، SOL، DOGE. صرافی‌های خوب: نوبیتکس، والکس، تترلند. تأیید معمولاً ۵-۱۵ دقیقه."),
+    ("shipping", "ارسال سریع به تهران 🇮🇷، استانبول 🇹🇷، دبی 🇦🇪، بغداد 🇮🇶، تورنتو 🇨🇦 اغلب زیر ۴-۸ ساعت پس از تأیید پرداخت. بسته‌بندی کاملاً محرمانه، بدون نام دارو روی جعبه."),
+    ("ritalin", "متیل‌فنیدات (ریتالین، کونسرتا، ساندوز، وایاس) برای ADHD و نارکولپسی. اطلاعات عمومی — دوز و تجویز فقط توسط پزشک."),
+    ("semaglutide", "سماگلوتاید (اوزمپیک، ویگوی) برای دیابت نوع ۲ و کمک به کاهش وزن (همراه رژیم)."),
+    ("order", "مراحل: جستجو/انتخاب دارو در medpharmaweb.com → سبد خرید → checkout → انتخاب آدرس و ارز دیجیتال → واریز دقیق → تأیید ۵-۱۵ دقیقه → ارسال."),
+    ("authenticity", "تمام محصولات اورجینال اروپایی/آمریکایی با ضمانت، هولوگرام و کد batch قابل بررسی. بسته‌بندی محرمانه."),
+    ("support", "پشتیبانی ۲۴ ساعته در چت سایت یا @PharmaWebAd. گروه: @PharmaWebGp."),
 ]
 
 # ═══════════════════════════════════════════════════════════
@@ -12677,21 +12679,28 @@ class ProfessionalGroupResponder:
         return list(self.history[chat_id])[-limit:]
 
     async def generate(self, chat_id, user_text, style="informative"):
-        # classify + retrieve
+        # Full professional pipeline (ported/adapted from web3test)
         intent_info = classify_intent(user_text)
         retrieved = retrieve_knowledge(user_text, intent_info.get('intent',''))
-
-        # build rich context
+        has_retrieved = bool(retrieved)
         hist = self.get_recent_history(chat_id)
+        has_history = len(hist) > 0
+
+        strategy = plan_strategy(intent_info, has_retrieved, has_history)
+
+        # build rich context + notes
         ctx_lines = [f"{r}: {t[:180]}" for r,t,_ in hist[-5:]]
         ctx_str = "\n".join(ctx_lines)
         notes = get_group_notes(chat_id)
+        if notes:
+            ctx_str = (ctx_str + "\nیادداشت‌های گروه: " + notes) if ctx_str else "یادداشت‌های گروه: " + notes
 
         sys_p = NATURAL_GROUP_SYSTEM_PROMPT.format(
             context=ctx_str or "(no recent)",
             user_msg=user_text,
             style=style,
-            retrieved=retrieved or "(no specific)"
+            strategy=strategy,
+            retrieved=retrieved or "(no specific retrieved)"
         )
 
         # call with retry
@@ -12757,7 +12766,7 @@ NATURAL_GROUP_SYSTEM_PROMPT = (
     "قوانین سخت (همیشه رعایت کن):\n"
     "- فارسی روان و طبیعی با نیم‌فاصله. ۲ تا ۴ جمله کوتاه. کامل و با فعل.\n"
     "- زمینه چت اخیر را بخوان و دقیقاً مرتبط جواب بده یا حرف را ادامه بده.\n"
-    "- سبک پاسخ: {style}. تنوع بده، گاهی سوال بپرس، گاهی نکته کوچک اضافه کن.\n"
+    "- استراتژی: {strategy}. سبک: {style}. تنوع بده، گاهی سوال بپرس، گاهی نکته کوچک اضافه کن.\n"
     "- هرگز مثل ربات پشتیبانی یا فروشنده حرف نزن. فقط وقتی کاربر مستقیم درباره خرید یا سایت پرسید، آروم لینک یا گروه را بگو.\n"
     "- هرگز لیست، بولت، ایموجی زیاد یا «برای سفارش» ننویس مگر اینکه صراحتاً خواسته باشند.\n"
     "- اگر مطمئن نیستی بگو «نمیدونم دقیق» و پیشنهاد بده از @PharmaWebAd بپرسند.\n"
@@ -12766,9 +12775,13 @@ NATURAL_GROUP_SYSTEM_PROMPT = (
     "دانش مرتبط بازیابی‌شده:\n{retrieved}\n\n"
     "Recent chat context (آخرین پیام‌های گروه):\n{context}\n\n"
     "پیام فعلی کاربر: {user_msg}\n\n"
-    "مثال پاسخ خوب:\n"
+    "مثال‌های پاسخ خوب (few-shot):\n"
     "کاربر: ارسال به استانبول چقدر طول میکشه؟\n"
     "تو: معمولاً بعد از تأیید واریز، به استانبول زیر ۸ ساعت می‌رسه. بسته‌بندی محرمانه است.\n\n"
+    "کاربر: برای بیش‌فعالی چی پیشنهاد می‌کنی؟\n"
+    "تو: متیل‌فنیدات (ریتالین و مشابه) معمولاً برای ADHD استفاده می‌شه. اطلاعات عمومیه — حتماً با پزشک مشورت کن.\n\n"
+    "کاربر: پرداخت با کدوم ارز بهتره؟\n"
+    "تو: USDT روی TRC20 کارمزد پایینه و سریع تأیید می‌شه. نوبیتکس یا والکس گزینه‌های خوبی هستن.\n\n"
     "پاسخ طبیعی کوتاه تو:"
 )
 
@@ -12831,32 +12844,112 @@ def _detect_fast_intent(text: str) -> Optional[str]:
     return None
 
 # ═══════════════════════════════════════════════════════════
-# Phase 2: Lightweight Intent Classifier + Strategy (inspired by web3test/chat/intent_router + reasoning)
+# Full Intent Classifier + Strategy (ported/adapted from web3test/chat/intent_router.py + reasoning_engine.py)
+# This makes the AI "think" like the professional website assistant.
 # ═══════════════════════════════════════════════════════════
-INTENT_PATTERNS = [
-    ('complaint', [r'جواب.*پرت', r'اشتباه', r'نمی\s*فهم', r'بی\s*ربط', r'تکرار', r'ضعیف', r'ناراحت']),
-    ('bot_question', [r'ربات', r'بات', r'ai', r'هوش مصنوعی', r'انسان نیست']),
-    ('payment_crypto', [r'پرداخت', r'واریز', r'usdt', r'trc20', r'کریپتو', r'ارز دیجیتال', r'نوبیتکس', r'والکس']),
-    ('shipping', [r'ارسال', r'تحویل', r'استانبول', r'دبی', r'تورنتو', r'تهران', r'چقدر طول']),
-    ('drug_info', [r'ریتالین', r'اوزمپیک', r'مونجارو', r'مودافینیل', r'ترامادول', r'برای .*چی', r'adhd', r'بیش فعالی', r'دیابت']),
-    ('order_process', [r'چطور سفارش', r'نحوه خرید', r'چگونه بخرم', r'مراحل', r'checkout']),
-    ('tracking', [r'پیگیری', r'سفارش', r'کجاست', r'status', r'وضعیت']),
-    ('support', [r'پشتیبانی', r'کمک', r'@PharmaWebAd', r'مشاوره']),
-    ('greeting', [r'سلام', r'hi', r'درود']),
+NON_PRODUCT_INTENTS = frozenset({
+    'greeting', 'thanks', 'goodbye', 'human_request',
+    'payment_crypto_help', 'crypto_info', 'tracking',
+    'faq_order_process', 'faq_return', 'faq_after_sales', 'trust_question',
+    'shipping_time', 'payment_confirmation', 'clarification',
+    'identity_question', 'presence_check', 'complaint', 'bot_question',
+    'chat_memory', 'site_info', 'help_request',
+    'faq_prescription', 'faq_wallet', 'faq_account', 'product_info',
+    'cancel_order', 'login_help', 'order_issue', 'wrong_payment',
+})
+
+# (intent, patterns) — first match wins
+INTENT_RULES = [
+    ('complaint', [r'جواب.*پرت', r'اشتباه', r'نمی\s*فهم', r'بی\s*ربط', r'تکرار', r'ضعیف', r'ناراحت', r'ضایع']),
+    ('bot_question', [r'ربات', r'رباتی', r'\bbot\b', r'هوش\s*مصنوعی', r'\bai\b', r'چت\s*بات', r'بات\s*هست', r'انسان\s*نیست']),
+    ('faq_after_sales', [r'پس\s*از\s*فروش', r'خدمات\s*پس', r'گارانتی', r'ضمانت\s*محصول', r'warranty']),
+    ('identity_question', [r'تو\s*کی\s*هست', r'شما\s*کی\s*هست', r'کی\s*هستی', r'who\s*are\s*you', r'اسم\s*تو', r'اسمت']),
+    ('presence_check', [r'^هستی\s*[؟?]?\s*$', r'هستی\s*[؟?]', r'^الو', r'آنجایی', r'پاسخ\s*مید', r'گوش\s*مید', r'are\s*you\s*there']),
+    ('chat_memory', [r'چت.*گذشته', r'پیام.*قبل', r'بخاطر\s*می', r'یادت\s*می', r'حافظه', r'remember.*chat']),
+    ('trust_question', [r'اعتماد', r'اطمینان', r'قابل\s*اطمینان', r'مطمئن', r'معتبر', r'کلاهبرد', r'تقلب', r'trust', r'scam']),
+    ('faq_order_process', [
+        r'چطور.*خرید', r'چگونه.*خرید', r'نحوه\s*خرید', r'مراحل\s*(خرید|سفارش)', r'چیکار\s*باید', r'چکار\s*باید',
+        r'راهنمای\s*خرید', r'how\s*(to\s*)?(buy|order)', r'میخوام\s*خرید', r'از\s*(فارما|سایت).*خرید',
+        r'چطور.*سفارش', r'نحوه\s*سفارش', r'دقیقا.*چطور'
+    ]),
+    ('payment_crypto_help', [r'چطور\s*پرداخت', r'نحوه\s*پرداخت', r'راهنما.*پرداخت', r'کیف\s*پول', r'والت', r'how\s*to\s*pay']),
+    ('crypto_info', [r'تتر', r'usdt', r'کریپتو', r'ارز\s*دیجیتال', r'بیت\s*کوین', r'btc', r'اتریوم', r'صرافی', r'nobitex', r'والکس']),
+    ('wrong_payment', [r'شبکه\s*اشتباه', r'wrong\s*network', r'اشتباه\s*واریز', r'کم\s*واریز', r'مبلغ\s*اشتباه']),
+    ('payment_confirmation', [r'پرداخت\s*کردم', r'واریز\s*کردم', r'پول\s*دادم', r'paid', r'\bhash\b', r'txid']),
+    ('cancel_order', [r'لغو\s*سفارش', r'cancel\s*order', r'انصراف', r'پشیمون']),
+    ('order_issue', [r'نرسید', r'not\s*received', r'تحویل\s*نشد', r'آسیب\s*دید', r'شکسته', r'مغایرت', r'wrong\s*item']),
+    ('login_help', [r'فراموشی\s*رمز', r'forgot\s*password', r'نمیتونم\s*وارد', r"can't\s*login"]),
+    ('tracking', [r'پیگیری|رهگیری|وضعیت|track|order.*status']),
+    ('shipping_time', [r'ارسال|تحویل|چقدر\s*طول|چند\s*روز|زمان\s*ارسال']),
 ]
 
-def classify_intent(text: str) -> dict:
-    """Return {'intent': str, 'confidence': float} - lightweight version."""
-    t = (text or '').lower()
-    best_intent = 'general_chat'
-    best_score = 0
-    for intent, patterns in INTENT_PATTERNS:
-        score = sum(1 for p in patterns if re.search(p, t))
-        if score > best_score:
-            best_score = score
-            best_intent = intent
-    conf = min(0.95, 0.3 + best_score * 0.2)
-    return {'intent': best_intent, 'confidence': conf}
+def _detect_language(text: str) -> str:
+    if re.search(r'[ا-ی]', text):
+        return 'fa'
+    return 'en'
+
+def classify_intent(message: str) -> dict:
+    """Full port/adapt from web3test for professional intent routing."""
+    msg_lower = (message or '').lower().strip()
+    language = _detect_language(message)
+    intent = 'unknown'
+    confidence = 0.0
+    entities = {}
+
+    for name, patterns in INTENT_RULES:
+        for pat in patterns:
+            if re.search(pat, msg_lower, re.IGNORECASE):
+                intent = name
+                confidence = 0.9
+                break
+        if intent != 'unknown':
+            break
+
+    # Shipping cities boost
+    fast_cities = {'تهران': '🇮🇷', 'استانبول': '🇹🇷', 'دبی': '🇦🇪', 'بغداد': '🇮🇶', 'تورنتو': '🇨🇦'}
+    for city, flag in fast_cities.items():
+        if city in msg_lower:
+            if intent in ('unknown', 'shipping_time'):
+                intent = 'shipping_time'
+                entities.setdefault('cities', []).append({'name': city, 'flag': flag})
+                confidence = max(confidence, 0.85)
+            break
+
+    # help with buy context -> order process
+    if intent == 'help_request' and re.search(r'(خرید|سفارش|پرداخت|دارو)', msg_lower):
+        intent = 'faq_order_process'
+        confidence = 0.88
+
+    # میخوام + drug -> search or faq
+    if intent == 'unknown' and re.search(r'(میخوام|می‌خوام)', msg_lower):
+        if re.search(r'(ریتالین|اوزمپیک|مونجارو|دارو|قرص)', msg_lower):
+            intent = 'faq_order_process'
+            confidence = 0.85
+
+    if intent == 'unknown' and re.search(r'(دارید|موجود|قیمت|چنده|چقدر)', msg_lower):
+        if re.search(r'(ریتالین|اوزمپیک|مونجارو|دارو)', msg_lower):
+            intent = 'product_info'
+            confidence = 0.8
+
+    return {
+        'intent': intent,
+        'confidence': confidence,
+        'entities': entities,
+        'language': language,
+    }
+
+def plan_strategy(intent_info: dict, has_retrieved: bool, has_history: bool) -> str:
+    """Simple strategy planner adapted from web3test reasoning_engine."""
+    intent = intent_info.get('intent', 'unknown')
+    if intent in ('payment_crypto_help', 'crypto_info', 'shipping_time', 'tracking', 'faq_order_process', 'faq_after_sales') and has_retrieved:
+        return 'knowledge_or_faq'
+    if intent in ('complaint', 'bot_question', 'trust_question'):
+        return 'careful_llm'
+    if intent == 'greeting' or intent == 'presence_check':
+        return 'short_friendly'
+    if intent == 'unknown' and not has_history:
+        return 'contextual'
+    return 'full_llm'
 
 def plan_strategy(intent_info: dict, has_good_knowledge: bool, has_recent_context: bool) -> str:
     """Choose high-level strategy before calling LLM."""

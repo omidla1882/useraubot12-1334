@@ -45,14 +45,19 @@ async def main():
     except Exception as e:
         print("   Live call error:", type(e).__name__)
 
-    # 4. Phase 2 self tests
-    print("\n4. Phase 2 features:")
-    if b:
-        intent = b.classify_intent("ارسال به استانبول بعد پرداخت چقدر طول میکشه؟")
-        print("   classify_intent shipping:", intent)
-        know = b.retrieve_knowledge("رتالین", "drug_info")
-        print("   retrieve_knowledge:", (know or "")[:120])
-        print("   qwen health check callable:", hasattr(b, "check_qwen_health"))
+    # 4. Phase 3 full pipeline test (professional AI)
+    print("\n4. Full professional pipeline (classify + plan + generate):")
+    if b and hasattr(b, 'classify_intent'):
+        for q in [
+            "ارسال به استانبول بعد پرداخت چقدر طول میکشه؟",
+            "برای بیش فعالی چی پیشنهاد میکنید؟",
+            "پرداخت با USDT کدوم شبکه بهتره؟",
+            "برای انجام سفارش پس از واریز ... (bad promo test)"
+        ]:
+            intent = b.classify_intent(q)
+            strategy = b.plan_strategy(intent, True, False) if hasattr(b, 'plan_strategy') else 'n/a'
+            print(f"   Q: {q[:50]} → intent={intent['intent']} strategy={strategy}")
+
     print("\n5. run_ai_self_test():")
     res = await b.run_ai_self_test(3) if b else {"skipped": True}
     print("   ", res)
