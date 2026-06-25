@@ -7,7 +7,12 @@ Or inside container: railway run --service userbotai python test_ai_quality.py
 import asyncio
 import sys
 sys.path.insert(0, ".")
-import bot as b
+try:
+    import bot as b
+except ImportError as e:
+    print("Warning: could not fully import bot (missing deps like telethon):", e)
+    # Still allow pure function tests if possible
+    b = None
 
 async def main():
     print("=== UserbotAI Natural Qwen3 Quality Self-Test ===\n")
