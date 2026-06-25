@@ -12997,6 +12997,91 @@ KNOWLEDGE_SNIPPETS = [
     ("order", "برای سفارش: وارد سایت medpharmaweb.com شوید، دارو انتخاب کنید، در checkout آدرس و ارز را انتخاب کنید و واریز کنید."),
 ]
 
+# ═══════════════════════════════════════════════════════════
+# Phase 3: ProfessionalGroupResponder - Clean extracted core for noticeable structural progress
+# Encapsulates intent, retrieval, generation, critique, anti-rep using reference patterns.
+# This makes the "professional AI brain" clearly visible and organized in the code.
+# ═══════════════════════════════════════════════════════════
+class ProfessionalGroupResponder:
+    def __init__(self, client, qwen_base, qwen_model, timeout=25):
+        self.client = client
+        self.qwen_base = qwen_base
+        self.qwen_model = qwen_model
+        self.timeout = timeout
+        self.history = defaultdict(lambda: deque(maxlen=12))  # (role, text, intent)
+
+    def add_turn(self, chat_id, role, text, intent=None):
+        self.history[chat_id].append((role, text, intent))
+
+    def get_recent_history(self, chat_id, limit=6):
+        return list(self.history[chat_id])[-limit:]
+
+    async def generate(self, chat_id, user_text, style="informative"):
+        # classify + retrieve
+        intent_info = classify_intent(user_text)
+        retrieved = retrieve_knowledge(user_text, intent_info.get('intent',''))
+
+        # build rich context
+        hist = self.get_recent_history(chat_id)
+        ctx_lines = [f"{r}: {t[:180]}" for r,t,_ in hist[-5:]]
+        ctx_str = "\n".join(ctx_lines)
+        notes = get_group_notes(chat_id)
+
+        sys_p = NATURAL_GROUP_SYSTEM_PROMPT.format(
+            context=ctx_str or "(no recent)",
+            user_msg=user_text,
+            style=style,
+            retrieved=retrieved or "(no specific)"
+        )
+
+        # call with retry
+        payload = {
+            "model": self.qwen_model,
+            "messages": [{"role":"system","content":sys_p}, {"role":"user","content":user_text}],
+            "stream": False,
+            "think": False,
+            "options": {"temperature":0.37, "num_predict":170, "num_ctx":4096, "top_p":0.87, "repeat_penalty":1.13}
+        }
+        raw = ""
+        for _ in range(2):
+            try:
+                timeout = aiohttp.ClientTimeout(total=self.timeout)
+                async with aiohttp.ClientSession(timeout=timeout) as sess:
+                    async with sess.post(f"{self.qwen_base}/api/chat", json=payload) as r:
+                        if r.status==200:
+                            data = await r.json(content_type=None)
+                            raw = (data.get('message',{}).get('content') or '').strip()
+                            break
+            except:
+                await asyncio.sleep(0.5)
+        cleaned = _clean_natural(raw)
+
+        # self-critique (Phase 3)
+        critique_text = cleaned
+        if cleaned and len(cleaned) > 10:
+            crit_prompt = f"Critique this Persian Telegram group reply for naturalness (human-like), no spam, relevance. Score 1-10. If <8 rewrite improved version only:\n{cleaned}"
+            try:
+                c_payload = {"model":self.qwen_model, "messages":[{"role":"user","content":crit_prompt}], "stream":False,"think":False,"options":{"temperature":0.2,"num_predict":120}}
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=12)) as sess:
+                    async with sess.post(f"{self.qwen_base}/api/chat", json=c_payload) as cr:
+                        if cr.status==200:
+                            cd = await cr.json(content_type=None)
+                            c_raw = (cd.get('message',{}).get('content') or '').strip()
+                            if c_raw and _clean_natural(c_raw) and not is_repeated_response(c_raw, hist):
+                                critique_text = _clean_natural(c_raw)
+            except:
+                pass
+
+        # final gate + anti-rep
+        if not is_high_quality_natural(critique_text) or is_repeated_response(critique_text, hist):
+            return None
+
+        self.add_turn(chat_id, 'bot', critique_text, intent_info.get('intent'))
+        return critique_text
+
+# Global responder instance (initialized later in main)
+responder = None
+
 def retrieve_knowledge(query: str, intent: str = "") -> str:
     """Very simple keyword retriever."""
     q = (query or "").lower() + " " + (intent or "").lower()
@@ -13046,6 +13131,36 @@ def _message_triggers_ai(text: str) -> bool:
     if not text or len(text) < 8:
         return False
     return bool(_AI_TRIGGER_COMPILED.search(text))
+
+# ═══════════════════════════════════════════════════════════
+# Phase 3: Ported from web3test/chat/conversation_brain.py for advanced loop prevention & diversity
+# ═══════════════════════════════════════════════════════════
+def _normalize_for_rep(text: str) -> str:
+    if not text:
+        return ''
+    t = re.sub(r'<!--cards:.*?-->', '', text, flags=re.DOTALL)
+    t = re.sub(r'\s+', ' ', t).strip().lower()
+    return t
+
+def is_repeated_response(response: str, history: list) -> bool:
+    """Check if response is too similar to recent bot responses (ported pattern)."""
+    norm = _normalize_for_rep(response)
+    if not norm:
+        return True
+    recent = [ _normalize_for_rep(h[1]) for h in history[-3:] if h[0] == 'bot' ]
+    for prev in recent:
+        if not prev:
+            continue
+        if norm == prev:
+            return True
+        if len(norm) > 40 and norm[:80] == prev[:80]:
+            return True
+        # simple similarity
+        aw = set(norm.split())
+        bw = set(prev.split())
+        if aw and bw and len(aw & bw) / max(len(aw), 1) > 0.82:
+            return True
+    return False
 
 def _detect_fast_intent(text: str) -> Optional[str]:
     t = text.lower()
@@ -13271,8 +13386,12 @@ async def handle_group_ai(event):
         fresh_ctx = await fetch_recent_group_context(client, chat_id, limit=6)
         ctx_for_llm = memory_ctx + [fresh_ctx] + exchange_lines + ([f"notes: {notes_str}"] if notes_str else [])
 
-        # Main LLM call (context-aware + history)
-        response = await call_qwen3_natural(ctx_for_llm, text, chat_id=chat_id)
+        # Phase 3: Use ProfessionalGroupResponder for generation (includes critique + anti-rep)
+        if responder is None:
+            # fallback to old if not init
+            response = await call_qwen3_natural(ctx_for_llm, text, chat_id=chat_id)
+        else:
+            response = await responder.generate(chat_id, text, style=choose_reply_style())
 
         if not response:
             if is_mentioned:
@@ -13284,10 +13403,10 @@ async def handle_group_ai(event):
         group_ai_last_response[chat_id] = now
         await event.reply(response)
         group_exchange_history[chat_id].append(("bot", response))
-        # Phase 2: auto learn simple facts
+        # auto learn
         if any(k in response.lower() for k in ['ارسال', 'پرداخت', 'ساعت', 'ریتالین', 'اوزمپیک']):
             add_group_note(chat_id, response[:160])
-        slog(f"🤖 natural Qwen3 → {chat_id} ({len(response)}c)")
+        slog(f"🤖 Phase3 natural+critique → {chat_id} ({len(response)}c)")
 
     except Exception as e:
         slog(f"❌ handle_group_ai error: {e}")
@@ -13759,6 +13878,10 @@ async def main():
     signal.signal(signal.SIGTERM, signal_handler)
     
     await client.start()
+    
+    # Phase 3: init professional responder (structure improvement - AI core ready)
+    global responder
+    responder = ProfessionalGroupResponder(client, QWEN3_BASE_URL, QWEN3_MODEL, GROUP_AI_TIMEOUT_SECONDS)
     
     # 🌐 شروع فوری وب سرور برای Railway (قبل از هر کار سنگین - رفع ارور کرش)
     asyncio.create_task(start_web_server())

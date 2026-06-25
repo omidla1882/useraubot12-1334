@@ -45,9 +45,16 @@ async def main():
     except Exception as e:
         print("   Live call error:", type(e).__name__)
 
-    # 4. Self test helper
-    print("\n4. run_ai_self_test():")
-    res = await b.run_ai_self_test(3)
+    # 4. Phase 2 self tests
+    print("\n4. Phase 2 features:")
+    if b:
+        intent = b.classify_intent("ارسال به استانبول بعد پرداخت چقدر طول میکشه؟")
+        print("   classify_intent shipping:", intent)
+        know = b.retrieve_knowledge("رتالین", "drug_info")
+        print("   retrieve_knowledge:", (know or "")[:120])
+        print("   qwen health check callable:", hasattr(b, "check_qwen_health"))
+    print("\n5. run_ai_self_test():")
+    res = await b.run_ai_self_test(3) if b else {"skipped": True}
     print("   ", res)
 
     print("\n=== Test finished ===")
