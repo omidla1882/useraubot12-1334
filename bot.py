@@ -13235,8 +13235,8 @@ async def handle_owner_command(event):
         return True
     if text.startswith("!cooldown "):
         try:
-            secs = int(text.split()[1])
             global GROUP_AI_COOLDOWN_SECONDS
+            secs = int(text.split()[1])
             GROUP_AI_COOLDOWN_SECONDS = max(300, secs)
             await event.reply(f"cooldown={GROUP_AI_COOLDOWN_SECONDS}")
         except:
