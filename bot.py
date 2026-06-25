@@ -13877,14 +13877,24 @@ async def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    await client.start()
+    # 🌐 شروع فوری وب سرور برای Railway (اولین کار - برای جلوگیری از کرش تشخیص Railway)
+    print("🌐 Starting Railway healthcheck server first...", flush=True)
+    asyncio.create_task(start_web_server())
     
     # Phase 3: init professional responder (structure improvement - AI core ready)
     global responder
     responder = ProfessionalGroupResponder(client, QWEN3_BASE_URL, QWEN3_MODEL, GROUP_AI_TIMEOUT_SECONDS)
     
-    # 🌐 شروع فوری وب سرور برای Railway (قبل از هر کار سنگین - رفع ارور کرش)
-    asyncio.create_task(start_web_server())
+    # شروع کلاینت تلگرام
+    try:
+        print("🔌 Connecting Telethon client...", flush=True)
+        await client.start()
+        print("✅ Telethon client started successfully", flush=True)
+    except Exception as e:
+        print(f"❌ FATAL: Telethon client failed to start: {e}", flush=True)
+        # Keep the web server running so Railway doesn't think it's dead immediately
+        await asyncio.sleep(3600)
+        return
     
     # ═══════════════════════════════════════════════════════════
     # 🚀 پیام استارت (تنها لاگ در نسخه Silent)
@@ -14018,12 +14028,13 @@ async def main():
         slog(f"   ⏳ در انتظار: {pending_count}")
         slog("-" * 60)
     
-    slog("🚀 ربات شروع به کار کرد - حالت یادگیری هوشمند فعال")
-    slog(f"🚂 Railway Mode: {RAILWAY_MODE.upper()}")
-    slog("📈 سیستم‌های تبلیغاتی پیشرفته فعال")
-    slog("=" * 60)
+    print("🚀 Bot started - entering run_until_disconnected (AI conversational mode active)", flush=True)
     
-    await client.run_until_disconnected()
+    try:
+        await client.run_until_disconnected()
+    except Exception as e:
+        print(f"❌ Bot disconnected with error: {e}", flush=True)
+        raise
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🕐 توابع شروع با تاخیر - برای جلوگیری از اسپم
