@@ -309,15 +309,50 @@ def _clean_natural(text: str) -> str:
     return _persian_normalize('\n'.join(lines))
 
 # --- AI response logger (for verification) ---
+import os as _os
+_os.makedirs("remember/ai_logs", exist_ok=True)
+
 def log_ai_response(summary: str, raw: str, final: str):
     try:
         from datetime import datetime as _dt
         ts = _dt.now().isoformat(timespec='seconds')
-        entry = f"\n[{ts}] {summary}\nRAW: {raw[:400]!r}\nFINAL: {final[:400]!r}\n---\n"
+        entry = f"\n[{ts}] {summary}\nRAW: {raw[:450]!r}\nFINAL: {final[:450]!r}\n---\n"
+        # main log
         with open("ai_responses.log", "a", encoding="utf-8") as f:
+            f.write(entry)
+        # also to dated log
+        day = _dt.now().strftime("%Y-%m-%d")
+        with open(f"remember/ai_logs/responses-{day}.log", "a", encoding="utf-8") as f:
             f.write(entry)
     except Exception:
         pass
+
+# --- Per-group exchange history for real multi-turn conversations ---
+# Stores tuples of (role, text) where role is 'user' or 'bot'
+group_exchange_history: Dict[int, deque] = defaultdict(lambda: deque(maxlen=10))
+
+# Track recent bot outputs per group to avoid repetition
+recent_bot_outputs: Dict[int, deque] = defaultdict(lambda: deque(maxlen=6))
+
+def _hash_text(t: str) -> str:
+    return str(hash(t.lower().strip()[:120]))[:12]
+
+def _is_repetitive(chat_id: int, text: str) -> bool:
+    h = _hash_text(text)
+    return h in recent_bot_outputs[chat_id]
+
+def _record_bot_output(chat_id: int, text: str):
+    recent_bot_outputs[chat_id].append(_hash_text(text))
+
+# --- Reply style variety for more human feel ---
+def choose_reply_style() -> str:
+    styles = [
+        "informative",      # straight useful info
+        "curious",          # ask a gentle follow-up
+        "agree_add",        # agree and add a small detail
+        "practical_tip",    # share a small practical note
+    ]
+    return random.choice(styles)
 
 async def generate_natural_valuable_post(topic_hint: str = "") -> str:
     """AI-first valuable non-spam post (to be used when broadcast enabled)."""
@@ -12921,6 +12956,7 @@ NATURAL_GROUP_SYSTEM_PROMPT = (
     "قوانین سخت (همیشه رعایت کن):\n"
     "- فارسی روان و طبیعی با نیم‌فاصله. ۲ تا ۴ جمله کوتاه. کامل و با فعل.\n"
     "- زمینه چت اخیر را بخوان و دقیقاً مرتبط جواب بده یا حرف را ادامه بده.\n"
+    "- سبک پاسخ: {style}. تنوع بده، گاهی سوال بپرس، گاهی نکته کوچک اضافه کن.\n"
     "- هرگز مثل ربات پشتیبانی یا فروشنده حرف نزن. فقط وقتی کاربر مستقیم درباره خرید یا سایت پرسید، آروم لینک یا گروه را بگو.\n"
     "- هرگز لیست، بولت، ایموجی زیاد یا «برای سفارش» ننویس مگر اینکه صراحتاً خواسته باشند.\n"
     "- اگر مطمئن نیستی بگو «نمیدونم دقیق» و پیشنهاد بده از @PharmaWebAd بپرسند.\n"
@@ -12960,21 +12996,21 @@ def _detect_fast_intent(text: str) -> Optional[str]:
     return None
 
 
-async def call_qwen3_natural(recent_ctx: list[str], user_text: str) -> Optional[str]:
+async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int = None) -> Optional[str]:
     """
-    High-quality natural Qwen3 call.
-    - Uses exact good options from web3test/chat/llm_client.py
-    - Feeds real conversation context
-    - Strict natural persona + quality gate
+    High-quality natural Qwen3 call with retry + variety.
     """
+    style = choose_reply_style()
     context_str = "\n".join(recent_ctx[-6:]) if recent_ctx else ""
+
     sys_prompt = NATURAL_GROUP_SYSTEM_PROMPT.format(
         context=context_str or "(چت اخیر در دسترس نبود)",
-        user_msg=user_text
+        user_msg=user_text,
+        style=style
     )
 
     url = f"{QWEN3_BASE_URL}/api/chat"
-    payload = {
+    base_payload = {
         "model": QWEN3_MODEL,
         "messages": [
             {"role": "system", "content": sys_prompt},
@@ -12983,33 +13019,44 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str) -> Optional[
         "stream": False,
         "think": False,
         "options": {
-            "temperature": 0.38,
-            "num_predict": 180,
+            "temperature": 0.37,
+            "num_predict": 175,
             "num_ctx": 4096,
-            "top_p": 0.86,
+            "top_p": 0.87,
             "top_k": 40,
-            "repeat_penalty": 1.12,
+            "repeat_penalty": 1.13,
             "num_thread": 4,
         },
     }
-    try:
-        timeout = aiohttp.ClientTimeout(total=GROUP_AI_TIMEOUT_SECONDS)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, json=payload) as resp:
-                if resp.status == 200:
-                    data = await resp.json(content_type=None)
-                    raw = (data.get('message', {}).get('content') or '').strip()
-                    cleaned = _clean_natural(raw)
-                    if is_high_quality_natural(cleaned):
-                        log_ai_response(f"ctx={len(recent_ctx)} txt={user_text[:60]!r}", raw, cleaned)
-                        return cleaned
-                    else:
-                        log_ai_response(f"LOW_QUALITY ctx={len(recent_ctx)}", raw, cleaned or "")
-                        return None
-    except asyncio.TimeoutError:
-        slog(f"⏱️ Qwen3 timeout")
-    except Exception as e:
-        slog(f"❌ Qwen3 natural error: {e}")
+
+    for attempt in range(2):  # one retry
+        try:
+            payload = dict(base_payload)
+            if attempt > 0:
+                payload["options"]["temperature"] = 0.42  # slight variety on retry
+            timeout = aiohttp.ClientTimeout(total=GROUP_AI_TIMEOUT_SECONDS)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=payload) as resp:
+                    if resp.status == 200:
+                        data = await resp.json(content_type=None)
+                        raw = (data.get('message', {}).get('content') or '').strip()
+                        cleaned = _clean_natural(raw)
+                        if is_high_quality_natural(cleaned):
+                            if chat_id and _is_repetitive(chat_id, cleaned):
+                                log_ai_response(f"REPETITIVE_SKIPPED gid={chat_id}", raw, cleaned)
+                                return None
+                            log_ai_response(f"style={style} ctx={len(recent_ctx)} txt={user_text[:55]!r}", raw, cleaned)
+                            if chat_id:
+                                _record_bot_output(chat_id, cleaned)
+                            return cleaned
+                        else:
+                            log_ai_response(f"LOW_QUALITY attempt={attempt} gid={chat_id}", raw, cleaned or "")
+        except asyncio.TimeoutError:
+            pass
+        except Exception as e:
+            if attempt == 1:
+                slog(f"❌ Qwen3 natural error: {e}")
+        await asyncio.sleep(0.6 * (attempt + 1))
     return None
 
 # Back-compat thin wrapper (used by older internal paths if any)
@@ -13052,8 +13099,9 @@ async def handle_group_ai(event):
         if not is_mentioned and (now - last) < GROUP_AI_COOLDOWN_SECONDS:
             return
 
-        # Update memory
+        # Update memory + exchange history
         group_chat_memory[chat_id].append(text)
+        group_exchange_history[chat_id].append(("user", text))
 
         # Human-like behavior before replying
         await simulate_read_and_type(client, event.chat)
@@ -13062,19 +13110,24 @@ async def handle_group_ai(event):
         fast = _detect_fast_intent(text)
         if fast and fast in _AI_FAST_RESPONSES and not is_mentioned:
             reply = _AI_FAST_RESPONSES[fast]
-            if is_high_quality_natural(reply):
+            if is_high_quality_natural(reply) and not _is_repetitive(chat_id, reply):
                 group_ai_last_response[chat_id] = now
                 await event.reply(reply)
+                _record_bot_output(chat_id, reply)
+                group_exchange_history[chat_id].append(("bot", reply))
                 log_ai_response(f"fast:{fast}", reply, reply)
             return
 
-        # Build context from memory + fresh fetch (best effort)
+        # Build rich context: recent messages + recent exchanges
         memory_ctx = list(group_chat_memory[chat_id])[-5:]
-        fresh_ctx = await fetch_recent_group_context(client, chat_id, limit=7)
-        ctx_for_llm = (memory_ctx + [fresh_ctx]) if fresh_ctx else memory_ctx
+        exchange_lines = []
+        for role, txt in list(group_exchange_history[chat_id])[-4:]:
+            exchange_lines.append(f"{role}: {txt[:180]}")
+        fresh_ctx = await fetch_recent_group_context(client, chat_id, limit=6)
+        ctx_for_llm = memory_ctx + [fresh_ctx] + exchange_lines
 
-        # Main LLM call (context-aware)
-        response = await call_qwen3_natural(ctx_for_llm, text)
+        # Main LLM call (context-aware + history)
+        response = await call_qwen3_natural(ctx_for_llm, text, chat_id=chat_id)
 
         if not response:
             if is_mentioned:
@@ -13085,6 +13138,7 @@ async def handle_group_ai(event):
 
         group_ai_last_response[chat_id] = now
         await event.reply(response)
+        group_exchange_history[chat_id].append(("bot", response))
         slog(f"🤖 natural Qwen3 → {chat_id} ({len(response)}c)")
 
     except Exception as e:
@@ -13098,9 +13152,9 @@ _proactive_counters: Dict[int, int] = defaultdict(int)
 _proactive_day = date.today()
 
 async def group_observer_task():
-    """Occasionally chimes in naturally like a real member (strengthened)."""
+    """Occasionally chimes in naturally like a real member (strengthened + smarter)."""
     global _proactive_day
-    await asyncio.sleep(180)  # warm-up
+    await asyncio.sleep(220)
 
     while True:
         try:
@@ -13108,7 +13162,6 @@ async def group_observer_task():
                 await asyncio.sleep(300)
                 continue
 
-            # reset daily counters
             if date.today() != _proactive_day:
                 _proactive_counters.clear()
                 _proactive_day = date.today()
@@ -13117,42 +13170,66 @@ async def group_observer_task():
                 await asyncio.sleep(120)
                 continue
 
-            # pick a few candidate groups
-            candidates = random.sample(groups, min(5, len(groups)))
+            candidates = random.sample(groups, min(6, len(groups)))
             for gid in candidates:
                 if _proactive_counters[gid] >= PROACTIVE_MAX_PER_GROUP_DAY:
                     continue
                 try:
-                    # sample recent chat
-                    recent = await fetch_recent_group_context(client, gid, limit=6)
-                    if not recent or len(recent) < 40:
-                        continue
-                    # lightweight relevance
-                    low_relevant = not _message_triggers_ai(recent)
-                    if low_relevant and random.random() > 0.35:
+                    recent = await fetch_recent_group_context(client, gid, limit=7)
+                    if not recent or len(recent) < 50:
                         continue
 
-                    # natural delay as if thinking
-                    await asyncio.sleep(random.uniform(45, 140))
+                    # Smarter trigger: only if recent activity looks like ongoing health/med/immigration talk
+                    trigger_score = sum(1 for kw in ['دارو','ریتالین','اوزمپیک','ارسال','پرداخت','استانبول','دبی','ویزا','مهاجرت'] if kw in recent.lower())
+                    if trigger_score < 1 and random.random() > 0.25:
+                        continue
 
-                    # generate a natural comment (no direct question)
-                    ctx_list = [recent]
-                    probe = "در این مورد نظرتون چیه؟ یا تجربه‌ای داشتید؟"
-                    resp = await call_qwen3_natural(ctx_list, probe)
-                    if resp and is_high_quality_natural(resp) and len(resp) > 20:
-                        # one last human simulation
+                    await asyncio.sleep(random.uniform(60, 160))
+
+                    ctx_list = list(group_chat_memory[gid])[-4:] + [recent]
+                    probe = "این موضوع برام جالب بود، نظر بقیه چیه؟"
+                    resp = await call_qwen3_natural(ctx_list, probe, chat_id=gid)
+                    if resp and is_high_quality_natural(resp) and len(resp) > 22 and not _is_repetitive(gid, resp):
                         await simulate_read_and_type(client, gid)
                         await client.send_message(gid, resp)
                         _proactive_counters[gid] += 1
-                        log_ai_response("PROACTIVE", probe, resp)
-                        await asyncio.sleep(random.randint(180, 420))
-                        break  # one per cycle max
+                        group_exchange_history[gid].append(("bot", resp))
+                        log_ai_response(f"PROACTIVE gid={gid}", probe, resp)
+                        await asyncio.sleep(random.randint(220, 480))
+                        break
                 except Exception:
                     continue
 
-            await asyncio.sleep(random.randint(420, 900))  # 7-15 min between checks
+            await asyncio.sleep(random.randint(480, 1100))
         except Exception:
             await asyncio.sleep(300)
+
+
+async def run_ai_self_test(num_tests: int = 4) -> dict:
+    """Run quick quality tests against the current natural AI pipeline.
+    Returns summary. Can be called via railway run for verification.
+    """
+    test_queries = [
+        "برای بیش فعالی بزرگسال چی پیشنهاد میکنید؟",
+        "ارسال به استانبول بعد از پرداخت چقدر طول میکشه؟",
+        "رتالین اورجینال کجا میشه پیدا کرد؟",
+        "پرداخت با USDT روی کدوم شبکه بهتره؟",
+    ]
+    results = []
+    for q in test_queries[:num_tests]:
+        try:
+            r = await call_qwen3_natural(["سلام دوستان"], q)
+            ok = bool(r and is_high_quality_natural(r))
+            results.append({"q": q[:50], "ok": ok, "len": len(r) if r else 0})
+        except Exception as e:
+            results.append({"q": q[:50], "ok": False, "err": str(e)[:60]})
+    summary = {
+        "passed": sum(1 for x in results if x.get("ok")),
+        "total": len(results),
+        "details": results
+    }
+    log_ai_response("SELF_TEST", str(results), f"passed {summary['passed']}/{summary['total']}")
+    return summary
 
 
 # ═══════════════════════════════════════════════════════════
