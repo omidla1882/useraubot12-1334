@@ -196,6 +196,140 @@ RATE_ADJUSTMENT_INTERVAL = 1800  # هر 30 دقیقه بررسی و تنظیم
 ENABLE_BROADCAST = False  # 🟢 ارسال پیام‌های تبلیغاتی فعال شد
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# 🧠 PROFESSIONAL NATURAL AI + HUMAN SIM (ported + adapted from web3test best practices)
+# These make the bot act like a real human: read first, type, natural delay + strict quality.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+import re as _re  # local alias to avoid polluting top re if needed
+
+# --- Human simulation (from web3test/core/telegram_userbot.py, adapted) ---
+async def _simulate_human_delay(action: str = 'general'):
+    if action == 'between_groups':
+        delay = random.uniform(180, 420)  # 3-7 min
+    elif action == 'typing':
+        delay = random.uniform(2.5, 9)
+    elif action == 'reading':
+        delay = random.uniform(1.5, 6)
+    elif action == 'pre_reply':
+        delay = random.uniform(1.8, 5)
+    else:
+        delay = random.uniform(0.8, 2.5)
+    await asyncio.sleep(delay)
+
+async def simulate_read_and_type(client, chat):
+    """Simulate a human reading recent messages then typing before replying."""
+    try:
+        # Read last few messages
+        msgs = await client.get_messages(chat, limit=random.randint(4, 9))
+        if msgs:
+            await client.send_read_acknowledge(chat, msgs[-1])
+        await _simulate_human_delay('reading')
+    except Exception:
+        pass
+    try:
+        from telethon.tl.functions.messages import SetTypingRequest
+        from telethon.tl.types import SendMessageTypingAction
+        await client(SetTypingRequest(peer=chat, action=SendMessageTypingAction()))
+        await _simulate_human_delay('typing')
+    except Exception:
+        pass
+    await _simulate_human_delay('pre_reply')
+
+# --- Context fetcher for natural replies ---
+async def fetch_recent_group_context(client, chat_id: int, limit: int = 8) -> str:
+    """Return recent chat lines as context string for LLM."""
+    try:
+        msgs = await client.get_messages(chat_id, limit=limit)
+        lines = []
+        for m in reversed(msgs or []):
+            txt = (m.text or '').strip()
+            if not txt:
+                continue
+            sender = 'کاربر'
+            try:
+                if m.sender and getattr(m.sender, 'first_name', None):
+                    sender = m.sender.first_name[:12]
+            except Exception:
+                pass
+            lines.append(f"{sender}: {txt[:220]}")
+        return "\n".join(lines[-6:]) if lines else ""
+    except Exception:
+        return ""
+
+# --- Strict quality + naturalness gate (inspired by web3test _validate_sentence + sanitize) ---
+def _persian_normalize(t: str) -> str:
+    if not t:
+        return t
+    t = t.translate(str.maketrans({'ي': 'ی', 'ك': 'ک', 'ة': 'ه'}))
+    t = _re.sub(r'\bمی ([^\s‌])', r'می‌\1', t)
+    t = _re.sub(r'\bنمی ([^\s‌])', r'نمی‌\1', t)
+    t = _re.sub(r'  +', ' ', t)
+    return t.strip()
+
+def is_high_quality_natural(text: str) -> bool:
+    if not text or len(text) < 12 or len(text) > 650:
+        return False
+    t = _persian_normalize(text)
+    # Must have verb-ish ending or proper sentence end
+    ends = ('.', '!', '؟', '»', '،', '…')
+    verb_endings = ('می‌شود', 'می‌کند', 'دارد', 'است', 'هستند', 'می‌توان', 'می‌باشد', 'شود', 'کنید', 'هست')
+    if not (any(t.endswith(c) for c in ends) or any(t.endswith(v) for v in verb_endings)):
+        return False
+    # No prompt garbage
+    if any(bad in t[:30] for bad in ('قوانین', 'راهنما', 'نمونه خروجی', 'خروجی:', 'ساختار:')):
+        return False
+    # Too salesy / list spam
+    spam_markers = ['۱)', '۲)', '۳)', '۴)', '📌', 'برای سفارش', 'برای خرید', 'لطفاً به صورت دقیق']
+    if sum(1 for m in spam_markers if m in t) >= 2:
+        return False
+    # Garbled nonsense (heuristic)
+    if 'بازیکن' in t or 'فولوور شما' in t.lower():
+        return False
+    return True
+
+def _clean_natural(text: str) -> str:
+    if not text:
+        return text
+    text = _re.sub(r'<think>.*?</think>', '', text, flags=_re.DOTALL)
+    text = _re.sub(r'</?think>', '', text)
+    text = _re.sub(r'#{1,6}\s+', '', text)
+    text = _re.sub(r'\*{2,}([^*]+)\*{2,}', r'\1', text)
+    text = _re.sub(r'[-─═]{3,}', '', text)
+    fixes = {
+        'مدفارماوب': 'فارماوب', 'مد فارماوب': 'فارماوب',
+        'Medpharmaweb': 'PharmaWeb', 'medpharmaweb': 'فارماوب',
+        'iMed': 'فارماوب', 'آی\u200cمد': 'فارماوب',
+    }
+    for w, r in fixes.items():
+        text = text.replace(w, r)
+    text = _re.sub(r'\n{3,}', '\n\n', text)
+    lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
+    if len(lines) > 6:
+        lines = lines[:6]
+    return _persian_normalize('\n'.join(lines))
+
+# --- AI response logger (for verification) ---
+def log_ai_response(summary: str, raw: str, final: str):
+    try:
+        from datetime import datetime as _dt
+        ts = _dt.now().isoformat(timespec='seconds')
+        entry = f"\n[{ts}] {summary}\nRAW: {raw[:400]!r}\nFINAL: {final[:400]!r}\n---\n"
+        with open("ai_responses.log", "a", encoding="utf-8") as f:
+            f.write(entry)
+    except Exception:
+        pass
+
+async def generate_natural_valuable_post(topic_hint: str = "") -> str:
+    """AI-first valuable non-spam post (to be used when broadcast enabled)."""
+    probe = topic_hint or "نکته مفید یا اطلاعات کلی در مورد داروهای کمیاب یا سلامت روزمره"
+    ctx = []
+    resp = await call_qwen3_natural(ctx, probe)
+    if resp and is_high_quality_natural(resp):
+        return resp
+    # very safe curated fallback
+    return "بعضی داروهای ADHD و کنترل وزن واقعاً پیدا کردنشون سخته. اگر تجربه یا منبع معتبری دارید خوشحال میشم بدونم."
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 🤖 تنظیمات هوش مصنوعی گروه (GROUP AI - Qwen3)
 # ═══════════════════════════════════════════════════════════════════════════════
 ENABLE_GROUP_AI = True  # 🟢 فعال | 🔴 غیرفعال
@@ -11552,10 +11686,13 @@ async def broadcast_to_groups():
                             if current_time - last_message_time.get(group_id, 0) < retry_delay:
                                 continue
                     
-                    # 🎯 انتخاب هوشمند محتوا
+                    # 🎯 انتخاب هوشمند محتوا — guarded + prefer natural if possible
                     text = content_rotation.get_best_content_for_group(group_id, drug_lists)
-                    if not text:
-                        text = get_random_drug_list()  # 🚂 Railway optimized
+                    if not text or not is_high_quality_natural(text):
+                        text = get_random_drug_list()  # still low quality fallback
+                    if ENABLE_BROADCAST and not is_high_quality_natural(text):
+                        # refuse to send garbage even in broadcast
+                        continue
                     
                     # بررسی تکرار
                     if not content_rotation.should_send_content(group_id, text):
@@ -12760,195 +12897,98 @@ async def edit_mirror_message(message, chat_id):
 
 
 # ═══════════════════════════════════════════════════════════
-# 🤖 هوش مصنوعی گروه — Qwen3 Integration (Production-Grade)
-# پاسخ هوشمند در گروه‌های تلگرام با دانش کامل سایت فارماوب
+# 🤖 هوش مصنوعی گروه — Qwen3 (Natural Human-like — upgraded)
+#Persona: یک عضو واقعی و مفید گروه‌های فارسی‌زبان (سلامت، دارو، مهاجرت).
+#همیشه طبیعی، زمینه‌محور، بدون اسپم و لیست تبلیغاتی.
 # ═══════════════════════════════════════════════════════════
 
-# ── دانش سایت (مستخرج از chat/site_knowledge.py) ───────────
+# Knowledge kept (lightly edited for natural use)
 _SITE_KNOWLEDGE_FA = (
-    "دانش کامل سایت فارماوب (medpharmaweb.com):\n"
-    "محصولات: بیش از ۴۷۰ دارو و مکمل اورجینال — برندهای اروپایی و آمریکایی.\n"
-    "مراحل خرید: ۱) انتخاب دارو ۲) سبد خرید ۳) checkout → آدرس ارسال "
-    "۴) انتخاب ارز دیجیتال ۵) واریز دقیق مبلغ ۶) تأیید ۵–۱۵ دقیقه → ارسال.\n"
-    "پرداخت: ۸ ارز دیجیتال — BTC، ETH، USDT، TRX، BNB، TON، SOL، DOGE. "
-    "USDT: ۶ شبکه — TRC20 (ترون) پیشنهادی (کارمزد کم، تأیید سریع)، BEP20، ERC20، Solana، TON، BNB Beacon. "
-    "Wallet Connect نیز در checkout موجود است.\n"
-    "صرافی‌های پیشنهادی: نوبیتکس، والکس، تترلند، بایننس.\n"
-    "ارسال: شهرهای سریع — تهران 🇮🇷، استانبول 🇹🇷، دبی 🇦🇪، بغداد 🇮🇶، تورنتو 🇨🇦 — زیر ۴ ساعت. "
-    "سایر شهرها جهانی حداکثر ۲۴ ساعت. بسته‌بندی کاملاً محرمانه.\n"
-    "پشتیبانی: ۲۴ ساعته — چت آنلاین medpharmaweb.com/chat/room/ — کانال تلگرام @PharmaWebAd.\n"
-    "گروه تلگرام: @PharmaWebGp — برای پرسش و پاسخ با کارشناسان.\n"
-    "پیگیری سفارش: /orders/ در پنل کاربری.\n"
-    "بازگشت کالا: تا ۷ روز پس از تحویل در صورت آسیب یا مغایرت.\n"
-    "اصالت: تمام محصولات اورجینال با ضمانت — هولوگرام و کد batch قابل بررسی.\n"
-    "نسخه پزشک: داروهای OTC بدون نسخه قابل سفارش. مصرف داروهای تخصصی زیر نظر پزشک توصیه می‌شود."
+    "فارماوب (medpharmaweb.com): دارو و مکمل اورجینال اروپایی/آمریکایی. "
+    "پرداخت با BTC، ETH، USDT(TRC20 پیشنهادی)، TRX، BNB، TON، SOL، DOGE. "
+    "ارسال سریع به تهران، استانبول، دبی، بغداد، تورنتو و شهرهای دیگر. "
+    "پشتیبانی: @PharmaWebAd | گروه: @PharmaWebGp"
 )
 
-# ── دانش دارویی (مستخرج از chat/drug_families.py) ──────────
 _DRUG_KNOWLEDGE_FA = (
-    "خانواده‌های دارویی اصلی موجود در فارماوب:\n"
-    "• متیل‌فنیدات (Methylphenidate): ریتالین، کونسرتا، ساندوز، وایاس، آدرال — "
-    "درمان ADHD و نارکولپسی.\n"
-    "• سماگلوتاید (Semaglutide): اوزمپیک، ویگوی — دیابت نوع ۲ و مدیریت وزن.\n"
-    "• تیرزپاتید (Tirzepatide): مونجارو / Zepbound — دیابت و کاهش وزن.\n"
-    "• انسولین: لانتوس، نوورپید، توجئو، هومالوگ — کنترل قند خون دیابتی.\n"
-    "• مودافینیل: پروویجیل، مودالرت — نارکولپسی و تقویت هوشیاری.\n"
-    "• ترامادول: مسکن اپیوئیدی برای درد متوسط تا شدید.\n"
-    "این اطلاعات صرفاً عمومی و کتابخانه‌ای است — جایگزین مشاوره پزشکی نیست."
+    "دانش عمومی: متیل‌فنیدات (ریتالین و مشابه برای ADHD)، سماگلوتاید (اوزمپیک)، تیرزپاتید، "
+    "انسولین‌ها، مودافینیل، ترامادول و غیره — فقط اطلاعات کلی، نه توصیه شخصی."
 )
 
-# ── System Prompt کامل (ترکیب دانش سایت + دارویی + قوانین) ─
-GROUP_AI_SYSTEM_PROMPT = (
-    "تو «دستیار فارماوب» هستی — ربات هوشمند داروخانه آنلاین فارماوب که در گروه‌های تلگرامی به کاربران کمک می‌کند.\n\n"
-    + _SITE_KNOWLEDGE_FA + "\n\n"
-    + _DRUG_KNOWLEDGE_FA + "\n\n"
-    "روش پاسخ‌دهی:\n"
-    "- فارسی روان، گرم، حرفه‌ای — دقیقاً ۲ تا ۴ جمله. بدون حاشیه.\n"
-    "- برای سوالات سایت (پرداخت، ارسال، پیگیری) پاسخ مستقیم و کامل بده.\n"
-    "- برای سوالات دارویی، اطلاعات عمومی (کاربرد، دسته دارویی، عوارض شایع) بده — نه توصیه شخصی.\n"
-    "- اگر کاربر می‌خواهد خرید کند، او را به medpharmaweb.com راهنمایی کن.\n"
-    "- در انتهای هر پاسخ یک فراخوانی مختصر اضافه کن: مثلاً «برای خرید به @PharmaWebGp مراجعه کنید».\n\n"
-    "مرز ایمنی پزشکی (هرگز عبور نکن):\n"
-    "- هرگز دوز دقیق برای یک بیمار خاص نده.\n"
-    "- هرگز بیماری را تشخیص نده.\n"
-    "- هرگز داروی خاصی را برای بیماری خاص تجویز نکن.\n"
-    "- هر تصمیم درمانی شخصی را به پزشک یا داروساز ارجاع بده.\n\n"
-    "قوانین فنی:\n"
-    "- نام سایت فقط «فارماوب» یا «PharmaWeb» است — هرگز Medpharmaweb، iMed یا Sara ننویس.\n"
-    "- بدون markdown سنگین (بدون **, بدون #، بدون ---).\n"
-    "- حداکثر ۶ خط خروجی.\n"
-    "- اگر اطلاعات کافی نداری، صادقانه بگو و پیشنهاد تماس با @PharmaWebAd بده."
+NATURAL_GROUP_SYSTEM_PROMPT = (
+    "تو یک عضو واقعی و باهوش گروه‌های تلگرامی فارسی‌زبان هستی که به موضوعات سلامت، دارو، "
+    "تجهیزات پزشکی و زندگی ایرانیان خارج علاقه دارد. لحن گرم، طبیعی و کمی کنجکاو — مثل یک آدم معمولی که اطلاعات خوبی دارد.\n\n"
+    "قوانین سخت (همیشه رعایت کن):\n"
+    "- فارسی روان و طبیعی با نیم‌فاصله. ۲ تا ۴ جمله کوتاه. کامل و با فعل.\n"
+    "- زمینه چت اخیر را بخوان و دقیقاً مرتبط جواب بده یا حرف را ادامه بده.\n"
+    "- هرگز مثل ربات پشتیبانی یا فروشنده حرف نزن. فقط وقتی کاربر مستقیم درباره خرید یا سایت پرسید، آروم لینک یا گروه را بگو.\n"
+    "- هرگز لیست، بولت، ایموجی زیاد یا «برای سفارش» ننویس مگر اینکه صراحتاً خواسته باشند.\n"
+    "- اگر مطمئن نیستی بگو «نمیدونم دقیق» و پیشنهاد بده از @PharmaWebAd بپرسند.\n"
+    "- تشخیص پزشکی، دوز شخصی یا تجویز ممنوع — فقط اطلاعات عمومی.\n\n"
+    "دانش پایه:\n" + _SITE_KNOWLEDGE_FA + "\n" + _DRUG_KNOWLEDGE_FA + "\n\n"
+    "Recent chat context (آخرین پیام‌های گروه):\n{context}\n\n"
+    "پیام فعلی کاربر: {user_msg}\n"
+    "پاسخ طبیعی کوتاه تو:"
 )
 
-# ── پاسخ‌های سریع FAQ (بدون نیاز به LLM) ──────────────────
+# Minimal clean fast-paths (natural prose only)
 _AI_FAST_RESPONSES: Dict[str, str] = {
-    'payment': (
-        "پرداخت در فارماوب با ۸ ارز دیجیتال انجام می‌شود: BTC، ETH، USDT، TRX، BNB، TON، SOL، DOGE.\n"
-        "برای USDT شبکه TRC20 پیشنهادی است (کارمزد کم، تأیید ۵–۱۵ دقیقه).\n"
-        "صرافی‌های پیشنهادی: نوبیتکس، والکس، تترلند.\n"
-        "برای سفارش: medpharmaweb.com | اطلاعات بیشتر: @PharmaWebAd"
-    ),
-    'shipping': (
-        "ارسال به تهران 🇮🇷، استانبول 🇹🇷، دبی 🇦🇪، بغداد 🇮🇶 و تورنتو 🇨🇦 معمولاً زیر ۴ ساعت پس از تأیید پرداخت.\n"
-        "سایر شهرها جهانی حداکثر ۲۴ ساعت — بسته‌بندی کاملاً محرمانه.\n"
-        "برای سفارش: medpharmaweb.com | پشتیبانی: @PharmaWebAd"
-    ),
-    'authenticity': (
-        "تمام محصولات فارماوب اورجینال و از تأمین‌کنندگان معتبر اروپایی/آمریکایی هستند.\n"
-        "ضمانت اصالت + هولوگرام و کد batch قابل بررسی هنگام تحویل.\n"
-        "بسته‌بندی محرمانه — نام دارو روی بسته چاپ نمی‌شود.\n"
-        "موجودی و خرید: medpharmaweb.com | اطلاعات: @PharmaWebAd"
-    ),
-    'order_process': (
-        "مراحل خرید از فارماوب:\n"
-        "۱) جستجو یا انتخاب دارو در medpharmaweb.com\n"
-        "۲) افزودن به سبد → تکمیل خرید (checkout)\n"
-        "۳) پرداخت با ارز دیجیتال (USDT شبکه TRC20 پیشنهادی)\n"
-        "۴) تأیید پرداخت ۵–۱۵ دقیقه → ارسال فوری\n"
-        "سوال دارید؟ @PharmaWebAd"
-    ),
-    'tracking': (
-        "پیگیری سفارش: وارد حساب کاربری شوید → تاریخچه سفارش‌ها (/orders/).\n"
-        "وضعیت، جزئیات و کد پیگیری هر سفارش نمایش داده می‌شود.\n"
-        "مشکل دارید؟ کد سفارش را به @PharmaWebAd ارسال کنید."
-    ),
-    'support_redirect': (
-        "برای اطلاعات بیشتر و مشاوره رایگان:\n"
-        "🌐 medpharmaweb.com\n"
-        "💬 گروه: @PharmaWebGp\n"
-        "📞 پشتیبانی: @PharmaWebAd"
-    ),
+    'payment': "پرداخت با ارزهای دیجیتال از جمله USDT روی شبکه TRC20 راحت‌تره و کارمزد کمی داره. تأیید معمولاً ۵ تا ۱۵ دقیقه طول میکشه. صرافی‌هایی مثل نوبیتکس یا والکس رو پیشنهاد میکنن.",
+    'shipping': "ارسال به تهران، استانبول، دبی و چند شهر دیگه معمولاً خیلی سریع انجام میشه، اغلب زیر چند ساعت بعد از تأیید پرداخت.",
+    'support_redirect': "برای جزئیات بیشتر می‌تونی تو گروه @PharmaWebGp بپرسی یا به @PharmaWebAd پیام بدی.",
 }
 
-# ── تریگر پترن‌ها — سوالات دارویی/سایتی ───────────────────
 _AI_TRIGGER_COMPILED = re.compile(
     r'سوال|چطور|چگونه|[?؟]|آیا\s|میشه|میشود|چیه|چیست|هست؟|داره؟|'
-    r'دارو|داروی|قرص|آمپول|کپسول|شربت|پماد|مکمل|ویتامین|'
-    r'ریتالین|اوزمپیک|مونجارو|انسولین|مودافینیل|ترامادول|'
-    r'ritalin|ozempic|mounjaro|insulin|modafinil|tramadol|concerta|'
-    r'methylphenidate|semaglutide|tirzepatide|'
-    r'داروخانه|خرید|سفارش|قیمت|موجود|وارداتی|اصل|اورجینال|'
-    r'ارسال|تحویل|پرداخت|کریپتو|usdt|ترون|trx\b|'
-    r'نسخه|تجویز|مصرف|عوارض|تداخل|درمان|بیماری|علائم|دوز|مقدار|'
-    r'دیابت|adhd|بیش.فعال|نارکولپسی|قند.خون|کاهش.وزن',
+    r'دارو|داروی|قرص|ریتالین|اوزمپیک|مونجارو|مودافینیل|ترامادول|'
+    r'خرید|سفارش|ارسال|پرداخت|کریپتو|usdt|ترون|اصل|اورجینال|'
+    r'پیگیری|وضعیت|عوارض|دوز|ADHD|دیابت|کاهش وزن',
     re.IGNORECASE
 )
 
-
-def _detect_fast_intent(text: str) -> Optional[str]:
-    """تشخیص سریع نوع سوال برای پاسخ بدون LLM."""
-    t = text.lower()
-    if re.search(r'پرداخت|ارز|کریپتو|usdt|ترون|trc20|نوبیتکس|والکس|بیت.کوین|bnb|ton\b|sol\b|doge', t):
-        return 'payment'
-    if re.search(r'ارسال|تحویل|shipping|deliver|تهران|استانبول|دبی|بغداد|تورنتو|چند.ساعت|چقدر.طول', t):
-        return 'shipping'
-    if re.search(r'اصل|اورجینال|تقلب|جعل|original|authentic|fake|واقعی', t):
-        return 'authenticity'
-    if re.search(r'چطور.خرید|نحوه.خرید|مراحل|گام|step|how.to.order|چگونه.سفارش', t):
-        return 'order_process'
-    if re.search(r'پیگیری|وضعیت.سفارش|track|order.status|کجاست.سفارش', t):
-        return 'tracking'
-    return None
-
-
 def _message_triggers_ai(text: str) -> bool:
-    """بررسی اینکه آیا پیام باید پاسخ AI دریافت کند."""
-    if not text or len(text) < 10:
+    if not text or len(text) < 8:
         return False
     return bool(_AI_TRIGGER_COMPILED.search(text))
 
-
-def _sanitize_ai_response(text: str) -> str:
-    """پاکسازی خروجی Qwen3 — حذف think chain، markdown سنگین، و برند اشتباه."""
-    if not text:
-        return text
-    # حذف <think>...</think> — chain-of-thought Qwen3
-    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
-    text = re.sub(r'</?think>', '', text)
-    # حذف markdown سنگین
-    text = re.sub(r'#{1,6}\s+', '', text)
-    text = re.sub(r'\*{2,}([^*]+)\*{2,}', r'\1', text)
-    text = re.sub(r'[-─═]{3,}', '', text)
-    # تصحیح برند اشتباه
-    brand_fixes = {
-        'مدفارماوب': 'فارماوب', 'مد فارماوب': 'فارماوب',
-        'Medpharmaweb': 'PharmaWeb', 'medpharmaweb': 'فارماوب',
-        'iMed': 'فارماوب', 'آی‌مد': 'فارماوب', 'سارا': 'پشتیبانی',
-    }
-    for wrong, right in brand_fixes.items():
-        text = text.replace(wrong, right)
-    # پاکسازی خطوط خالی اضافه
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
-    if len(lines) > 6:
-        lines = lines[:6]
-    result = '\n'.join(lines)
-    if len(result) > 650:
-        result = result[:650].rsplit(' ', 1)[0] + '…'
-    return result.strip()
+def _detect_fast_intent(text: str) -> Optional[str]:
+    t = text.lower()
+    if re.search(r'پرداخت|ارز|کریپتو|usdt|ترون|trc20|نوبیتکس|والکس', t):
+        return 'payment'
+    if re.search(r'ارسال|تحویل|تهران|استانبول|دبی|تورنتو', t):
+        return 'shipping'
+    return None
 
 
-async def call_qwen3_api(user_message: str) -> Optional[str]:
+async def call_qwen3_natural(recent_ctx: list[str], user_text: str) -> Optional[str]:
     """
-    فراخوانی Qwen3 از طریق Ollama API.
-    تنظیمات دقیقاً بر اساس llm_client.py تولیدی سایت — think=False اجباری.
+    High-quality natural Qwen3 call.
+    - Uses exact good options from web3test/chat/llm_client.py
+    - Feeds real conversation context
+    - Strict natural persona + quality gate
     """
+    context_str = "\n".join(recent_ctx[-6:]) if recent_ctx else ""
+    sys_prompt = NATURAL_GROUP_SYSTEM_PROMPT.format(
+        context=context_str or "(چت اخیر در دسترس نبود)",
+        user_msg=user_text
+    )
+
     url = f"{QWEN3_BASE_URL}/api/chat"
     payload = {
         "model": QWEN3_MODEL,
         "messages": [
-            {"role": "system", "content": GROUP_AI_SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": user_text},
         ],
         "stream": False,
-        "think": False,  # حیاتی — بدون این Qwen3 chain-of-thought را در پاسخ می‌آورد
+        "think": False,
         "options": {
-            "temperature": 0.35,      # پایین = دقیق‌تر، کمتر hallucination
-            "num_predict": 220,       # ~۵–۶ جمله کوتاه برای گروه
+            "temperature": 0.38,
+            "num_predict": 180,
             "num_ctx": 4096,
-            "top_p": 0.85,
+            "top_p": 0.86,
             "top_k": 40,
-            "repeat_penalty": 1.15,  # جلوگیری از تکرار — مشکل شایع Qwen3:1.7b
+            "repeat_penalty": 1.12,
             "num_thread": 4,
         },
     }
@@ -12959,19 +12999,36 @@ async def call_qwen3_api(user_message: str) -> Optional[str]:
                 if resp.status == 200:
                     data = await resp.json(content_type=None)
                     raw = (data.get('message', {}).get('content') or '').strip()
-                    return _sanitize_ai_response(raw) or None
+                    cleaned = _clean_natural(raw)
+                    if is_high_quality_natural(cleaned):
+                        log_ai_response(f"ctx={len(recent_ctx)} txt={user_text[:60]!r}", raw, cleaned)
+                        return cleaned
+                    else:
+                        log_ai_response(f"LOW_QUALITY ctx={len(recent_ctx)}", raw, cleaned or "")
+                        return None
     except asyncio.TimeoutError:
-        slog(f"⏱️ Qwen3 timeout ({GROUP_AI_TIMEOUT_SECONDS}s)")
+        slog(f"⏱️ Qwen3 timeout")
     except Exception as e:
-        slog(f"❌ Qwen3 error: {e}")
+        slog(f"❌ Qwen3 natural error: {e}")
     return None
 
+# Back-compat thin wrapper (used by older internal paths if any)
+async def call_qwen3_api(user_message: str) -> Optional[str]:
+    return await call_qwen3_natural([], user_message)
+
+
+# Per-group short-term memory for context (lightweight)
+group_chat_memory: Dict[int, deque] = defaultdict(lambda: deque(maxlen=12))
+# group_ai_last_response already declared globally earlier in file
 
 @client.on(events.NewMessage(func=lambda e: e.is_group))
 async def handle_group_ai(event):
     """
-    پاسخ هوشمند AI در گروه‌ها.
-    منطق: trigger check → cooldown → fast-path FAQ → Qwen3 LLM
+    Natural human-like group replies powered by Qwen3.
+    - Always fetches recent context
+    - Simulates reading + typing
+    - Quality gate + natural prompt
+    - Mentions always answered; other triggers + occasional proactive
     """
     if not ENABLE_GROUP_AI:
         return
@@ -12982,46 +13039,120 @@ async def handle_group_ai(event):
             return
 
         chat_id = event.chat_id
-
-        # ── تشخیص @mention یا سوال تریگر ─────────────────
         me = await client.get_me()
-        is_mentioned = bool(
-            me.username and f'@{me.username.lower()}' in text.lower()
-        )
-        is_question = _message_triggers_ai(text)
+        is_mentioned = bool(me.username and f'@{me.username.lower()}' in text.lower())
+        triggers = _message_triggers_ai(text)
 
-        if not is_mentioned and not is_question:
+        if not is_mentioned and not triggers:
             return
 
-        # ── بررسی cooldown (mention همیشه پاسخ می‌گیرد) ──
-        current_time = time.time()
-        last_time = group_ai_last_response.get(chat_id, 0)
-        if not is_mentioned and (current_time - last_time) < GROUP_AI_COOLDOWN_SECONDS:
+        # cooldown (mentions bypass)
+        now = time.time()
+        last = group_ai_last_response.get(chat_id, 0)
+        if not is_mentioned and (now - last) < GROUP_AI_COOLDOWN_SECONDS:
             return
 
-        # ── Fast-path: سوالات ساده بدون LLM ──────────────
-        fast_intent = _detect_fast_intent(text)
-        if fast_intent and fast_intent in _AI_FAST_RESPONSES:
-            group_ai_last_response[chat_id] = current_time
-            await event.reply(_AI_FAST_RESPONSES[fast_intent])
-            slog(f"🤖 FastPath AI ({fast_intent}) → گروه {chat_id}")
+        # Update memory
+        group_chat_memory[chat_id].append(text)
+
+        # Human-like behavior before replying
+        await simulate_read_and_type(client, event.chat)
+
+        # Fast clean natural prose (rare)
+        fast = _detect_fast_intent(text)
+        if fast and fast in _AI_FAST_RESPONSES and not is_mentioned:
+            reply = _AI_FAST_RESPONSES[fast]
+            if is_high_quality_natural(reply):
+                group_ai_last_response[chat_id] = now
+                await event.reply(reply)
+                log_ai_response(f"fast:{fast}", reply, reply)
             return
 
-        # ── LLM Path: Qwen3 برای سوالات پیچیده ──────────
-        response = await call_qwen3_api(text)
+        # Build context from memory + fresh fetch (best effort)
+        memory_ctx = list(group_chat_memory[chat_id])[-5:]
+        fresh_ctx = await fetch_recent_group_context(client, chat_id, limit=7)
+        ctx_for_llm = (memory_ctx + [fresh_ctx]) if fresh_ctx else memory_ctx
+
+        # Main LLM call (context-aware)
+        response = await call_qwen3_natural(ctx_for_llm, text)
+
         if not response:
             if is_mentioned:
-                # fallback اگر Qwen3 در دسترس نیست
-                await event.reply(_AI_FAST_RESPONSES['support_redirect'])
-                group_ai_last_response[chat_id] = current_time
+                fb = _AI_FAST_RESPONSES.get('support_redirect', "می‌تونی از @PharmaWebAd بپرسی.")
+                await event.reply(fb)
+                group_ai_last_response[chat_id] = now
             return
 
-        group_ai_last_response[chat_id] = current_time
+        group_ai_last_response[chat_id] = now
         await event.reply(response)
-        slog(f"🤖 Qwen3 AI → گروه {chat_id} ({len(response)} chars)")
+        slog(f"🤖 natural Qwen3 → {chat_id} ({len(response)}c)")
 
     except Exception as e:
         slog(f"❌ handle_group_ai error: {e}")
+
+
+# ── Strengthened Proactive Natural Engagement (observer) ─────────────────────
+PROACTIVE_ENABLED = True
+PROACTIVE_MAX_PER_GROUP_DAY = 4
+_proactive_counters: Dict[int, int] = defaultdict(int)
+_proactive_day = date.today()
+
+async def group_observer_task():
+    """Occasionally chimes in naturally like a real member (strengthened)."""
+    global _proactive_day
+    await asyncio.sleep(180)  # warm-up
+
+    while True:
+        try:
+            if not (ENABLE_GROUP_AI and PROACTIVE_ENABLED):
+                await asyncio.sleep(300)
+                continue
+
+            # reset daily counters
+            if date.today() != _proactive_day:
+                _proactive_counters.clear()
+                _proactive_day = date.today()
+
+            if not groups:
+                await asyncio.sleep(120)
+                continue
+
+            # pick a few candidate groups
+            candidates = random.sample(groups, min(5, len(groups)))
+            for gid in candidates:
+                if _proactive_counters[gid] >= PROACTIVE_MAX_PER_GROUP_DAY:
+                    continue
+                try:
+                    # sample recent chat
+                    recent = await fetch_recent_group_context(client, gid, limit=6)
+                    if not recent or len(recent) < 40:
+                        continue
+                    # lightweight relevance
+                    low_relevant = not _message_triggers_ai(recent)
+                    if low_relevant and random.random() > 0.35:
+                        continue
+
+                    # natural delay as if thinking
+                    await asyncio.sleep(random.uniform(45, 140))
+
+                    # generate a natural comment (no direct question)
+                    ctx_list = [recent]
+                    probe = "در این مورد نظرتون چیه؟ یا تجربه‌ای داشتید؟"
+                    resp = await call_qwen3_natural(ctx_list, probe)
+                    if resp and is_high_quality_natural(resp) and len(resp) > 20:
+                        # one last human simulation
+                        await simulate_read_and_type(client, gid)
+                        await client.send_message(gid, resp)
+                        _proactive_counters[gid] += 1
+                        log_ai_response("PROACTIVE", probe, resp)
+                        await asyncio.sleep(random.randint(180, 420))
+                        break  # one per cycle max
+                except Exception:
+                    continue
+
+            await asyncio.sleep(random.randint(420, 900))  # 7-15 min between checks
+        except Exception:
+            await asyncio.sleep(300)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -13430,7 +13561,7 @@ async def main():
     slog(f"   • 🔍 جستجوی گروه: {'🟢 فعال' if ENABLE_GROUP_SEARCH else '🔴 غیرفعال'}")
     slog(f"   • 👥 جمع‌آوری اعضا: {'🟢 فعال' if ENABLE_MEMBER_SCRAPING else '🔴 غیرفعال'}")
     slog(f"   • 📢 تبلیغات گروهی: {'🟢 فعال' if ENABLE_BROADCAST else '🔴 غیرفعال'}")
-    slog(f"   • 🤖 هوش مصنوعی گروه: {'🟢 فعال' if ENABLE_GROUP_AI else '🔴 غیرفعال'} (Qwen3 — cooldown {GROUP_AI_COOLDOWN_SECONDS//3600}h)")
+    slog(f"   • 🤖 هوش مصنوعی گروه: {'🟢 فعال' if ENABLE_GROUP_AI else '🔴 غیرفعال'} (Qwen3 NATURAL v2 — context+human-sim+gate, proactive enabled)")
     slog("-" * 60)
     # 🧹 نمایش وضعیت سیستم گروه‌های کم‌عضو
     slog("🧹 سیستم مدیریت گروه‌های کم‌عضو:")
@@ -13511,8 +13642,11 @@ async def main():
     asyncio.create_task(show_stats())  # نمایش آمار
     asyncio.create_task(periodic_ai_save())  # ذخیره دوره‌ای
     asyncio.create_task(periodic_our_group_update())  # به‌روزرسانی اعضای گروه ما
+
+    # 🧠 Proactive natural human engagement (new)
+    asyncio.create_task(group_observer_task())
     
-    # 📢 تبلیغات - با تاخیر اولیه برای جلوگیری از اسپم
+    # 📢 تبلیغات - با تاخیر اولیه برای جلوگیری از اسپم (disabled by default)
     asyncio.create_task(delayed_broadcast_start())  # شروع با تاخیر
     
     # 🔍 جستجوی گروه‌ها - با تاخیر اولیه
@@ -13691,6 +13825,8 @@ async def viral_content_broadcaster():
             
             # تولید محتوا
             content = viral_engine.generate_viral_content(content_type)
+            if not is_high_quality_natural(content):
+                continue  # refuse low quality
             
             # انتخاب چند گروه تصادفی
             target_groups = random.sample(groups, min(3, len(groups)))
@@ -13764,6 +13900,8 @@ async def engagement_content_sender():
                 content = engagement_booster.generate_engagement_content('questions')
             else:
                 content = content_engine.generate_content(content_type)
+            if not is_high_quality_natural(content):
+                continue  # guard
             
             # انتخاب گروه‌های با engagement بالا
             target_groups = random.sample(groups, min(2, len(groups)))
