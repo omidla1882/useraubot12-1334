@@ -334,6 +334,42 @@ group_exchange_history: Dict[int, deque] = defaultdict(lambda: deque(maxlen=10))
 # Track recent bot outputs per group to avoid repetition
 recent_bot_outputs: Dict[int, deque] = defaultdict(lambda: deque(maxlen=6))
 
+# Phase 2: Simple persistent group notes (remembers group personality)
+GROUP_NOTES_FILE = "remember/group_notes.json"
+group_notes: Dict[int, list] = {}
+
+def load_group_notes():
+    global group_notes
+    try:
+        if os.path.exists(GROUP_NOTES_FILE):
+            with open(GROUP_NOTES_FILE, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+                group_notes = {int(k): v for k, v in raw.items()}
+    except Exception:
+        pass
+
+def save_group_notes():
+    try:
+        os.makedirs(os.path.dirname(GROUP_NOTES_FILE), exist_ok=True)
+        with open(GROUP_NOTES_FILE, "w", encoding="utf-8") as f:
+            json.dump({str(k): v for k, v in group_notes.items()}, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def add_group_note(chat_id: int, note: str):
+    if chat_id not in group_notes:
+        group_notes[chat_id] = []
+    group_notes[chat_id].append(note[:180])
+    if len(group_notes[chat_id]) > 6:
+        group_notes[chat_id] = group_notes[chat_id][-6:]
+    save_group_notes()
+
+def get_group_notes(chat_id: int) -> str:
+    notes = group_notes.get(chat_id, [])
+    return "\n".join(notes[-3:]) if notes else ""
+
+load_group_notes()
+
 def _hash_text(t: str) -> str:
     return str(hash(t.lower().strip()[:120]))[:12]
 
@@ -12855,7 +12891,9 @@ async def invite_performance_monitor():
 # هندلر برای پیام‌های خصوصی (فقط یکبار)
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def handle_private_message(event):
-    """پاسخ یکبار به PM"""
+    """پاسخ یکبار به PM + owner commands"""
+    if await handle_owner_command(event):
+        return
     user_id = event.sender_id
     
     if user_id not in pm_responded:
@@ -12950,6 +12988,24 @@ _DRUG_KNOWLEDGE_FA = (
     "انسولین‌ها، مودافینیل، ترامادول و غیره — فقط اطلاعات کلی، نه توصیه شخصی."
 )
 
+# Phase 2: Extended knowledge snippets (mini index)
+KNOWLEDGE_SNIPPETS = [
+    ("payment", "پرداخت فقط با ارز دیجیتال انجام می‌شود (BTC, ETH, USDT-TRC20 پیشنهادی, TRX, BNB, TON, SOL, DOGE). USDT روی TRC20 سریع و ارزان است."),
+    ("shipping", "ارسال سریع به تهران، استانبول، دبی، بغداد و تورنتو اغلب زیر ۴-۸ ساعت پس از تأیید واریز. بسته‌بندی کاملاً محرمانه."),
+    ("ritalin", "متیل‌فنیدات (ریتالین، کونسرتا، ساندوز) برای ADHD و نارکولپسی استفاده می‌شود. فقط اطلاعات عمومی — دوز شخصی توسط پزشک تعیین می‌شود."),
+    ("semaglutide", "سماگلوتاید (اوزمپیک، ویگوی) برای دیابت نوع ۲ و مدیریت وزن. مکمل رژیم و ورزش است."),
+    ("order", "برای سفارش: وارد سایت medpharmaweb.com شوید، دارو انتخاب کنید، در checkout آدرس و ارز را انتخاب کنید و واریز کنید."),
+]
+
+def retrieve_knowledge(query: str, intent: str = "") -> str:
+    """Very simple keyword retriever."""
+    q = (query or "").lower() + " " + (intent or "").lower()
+    hits = []
+    for key, text in KNOWLEDGE_SNIPPETS:
+        if key in q or any(w in q for w in key.split()):
+            hits.append(text)
+    return "\n".join(hits[:2]) if hits else ""
+
 NATURAL_GROUP_SYSTEM_PROMPT = (
     "تو یک عضو واقعی و باهوش گروه‌های تلگرامی فارسی‌زبان هستی که به موضوعات سلامت، دارو، "
     "تجهیزات پزشکی و زندگی ایرانیان خارج علاقه دارد. لحن گرم، طبیعی و کمی کنجکاو — مثل یک آدم معمولی که اطلاعات خوبی دارد.\n\n"
@@ -12962,8 +13018,12 @@ NATURAL_GROUP_SYSTEM_PROMPT = (
     "- اگر مطمئن نیستی بگو «نمیدونم دقیق» و پیشنهاد بده از @PharmaWebAd بپرسند.\n"
     "- تشخیص پزشکی، دوز شخصی یا تجویز ممنوع — فقط اطلاعات عمومی.\n\n"
     "دانش پایه:\n" + _SITE_KNOWLEDGE_FA + "\n" + _DRUG_KNOWLEDGE_FA + "\n\n"
+    "دانش مرتبط بازیابی‌شده:\n{retrieved}\n\n"
     "Recent chat context (آخرین پیام‌های گروه):\n{context}\n\n"
-    "پیام فعلی کاربر: {user_msg}\n"
+    "پیام فعلی کاربر: {user_msg}\n\n"
+    "مثال پاسخ خوب:\n"
+    "کاربر: ارسال به استانبول چقدر طول میکشه؟\n"
+    "تو: معمولاً بعد از تأیید واریز، به استانبول زیر ۸ ساعت می‌رسه. بسته‌بندی محرمانه است.\n\n"
     "پاسخ طبیعی کوتاه تو:"
 )
 
@@ -12995,6 +13055,84 @@ def _detect_fast_intent(text: str) -> Optional[str]:
         return 'shipping'
     return None
 
+# ═══════════════════════════════════════════════════════════
+# Phase 2: Lightweight Intent Classifier + Strategy (inspired by web3test/chat/intent_router + reasoning)
+# ═══════════════════════════════════════════════════════════
+INTENT_PATTERNS = [
+    ('complaint', [r'جواب.*پرت', r'اشتباه', r'نمی\s*فهم', r'بی\s*ربط', r'تکرار', r'ضعیف', r'ناراحت']),
+    ('bot_question', [r'ربات', r'بات', r'ai', r'هوش مصنوعی', r'انسان نیست']),
+    ('payment_crypto', [r'پرداخت', r'واریز', r'usdt', r'trc20', r'کریپتو', r'ارز دیجیتال', r'نوبیتکس', r'والکس']),
+    ('shipping', [r'ارسال', r'تحویل', r'استانبول', r'دبی', r'تورنتو', r'تهران', r'چقدر طول']),
+    ('drug_info', [r'ریتالین', r'اوزمپیک', r'مونجارو', r'مودافینیل', r'ترامادول', r'برای .*چی', r'adhd', r'بیش فعالی', r'دیابت']),
+    ('order_process', [r'چطور سفارش', r'نحوه خرید', r'چگونه بخرم', r'مراحل', r'checkout']),
+    ('tracking', [r'پیگیری', r'سفارش', r'کجاست', r'status', r'وضعیت']),
+    ('support', [r'پشتیبانی', r'کمک', r'@PharmaWebAd', r'مشاوره']),
+    ('greeting', [r'سلام', r'hi', r'درود']),
+]
+
+def classify_intent(text: str) -> dict:
+    """Return {'intent': str, 'confidence': float} - lightweight version."""
+    t = (text or '').lower()
+    best_intent = 'general_chat'
+    best_score = 0
+    for intent, patterns in INTENT_PATTERNS:
+        score = sum(1 for p in patterns if re.search(p, t))
+        if score > best_score:
+            best_score = score
+            best_intent = intent
+    conf = min(0.95, 0.3 + best_score * 0.2)
+    return {'intent': best_intent, 'confidence': conf}
+
+def plan_strategy(intent_info: dict, has_good_knowledge: bool, has_recent_context: bool) -> str:
+    """Choose high-level strategy before calling LLM."""
+    intent = intent_info.get('intent', 'general_chat')
+    if intent in ('payment_crypto', 'shipping', 'tracking', 'order_process') and has_good_knowledge:
+        return 'fast_or_knowledge'
+    if intent in ('drug_info',) and has_good_knowledge:
+        return 'knowledge_llm'
+    if intent in ('complaint', 'bot_question'):
+        return 'careful_llm'
+    if intent == 'greeting':
+        return 'short_friendly'
+    return 'full_llm_context'
+
+# Phase 2 helpers
+async def check_qwen_health() -> bool:
+    try:
+        url = f"{QWEN3_BASE_URL}/api/tags"
+        timeout = aiohttp.ClientTimeout(total=8)
+        async with aiohttp.ClientSession(timeout=timeout) as sess:
+            async with sess.get(url) as resp:
+                return resp.status == 200
+    except Exception:
+        return False
+
+OWNER_IDS = set(int(x) for x in os.environ.get("USERBOT_OWNER_IDS", "").split(",") if x.strip())
+
+async def handle_owner_command(event):
+    if event.sender_id not in OWNER_IDS:
+        return False
+    text = (event.message.text or "").strip().lower()
+    if not text.startswith("!"):
+        return False
+    if text == "!status":
+        await event.reply(f"AI on={ENABLE_GROUP_AI} cooldown={GROUP_AI_COOLDOWN_SECONDS}s proactive={PROACTIVE_ENABLED}")
+        return True
+    if text.startswith("!cooldown "):
+        try:
+            secs = int(text.split()[1])
+            global GROUP_AI_COOLDOWN_SECONDS
+            GROUP_AI_COOLDOWN_SECONDS = max(300, secs)
+            await event.reply(f"cooldown={GROUP_AI_COOLDOWN_SECONDS}")
+        except:
+            pass
+        return True
+    if text == "!qwen":
+        ok = await check_qwen_health()
+        await event.reply(f"Qwen reachable: {ok}")
+        return True
+    return False
+
 
 async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int = None) -> Optional[str]:
     """
@@ -13003,10 +13141,15 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
     style = choose_reply_style()
     context_str = "\n".join(recent_ctx[-6:]) if recent_ctx else ""
 
+    intent_info = classify_intent(user_text)
+    retrieved = retrieve_knowledge(user_text, intent_info['intent'])
+    has_knowledge = bool(retrieved)
+
     sys_prompt = NATURAL_GROUP_SYSTEM_PROMPT.format(
         context=context_str or "(چت اخیر در دسترس نبود)",
         user_msg=user_text,
-        style=style
+        style=style,
+        retrieved=retrieved or "(دانش خاصی بازیابی نشد)"
     )
 
     url = f"{QWEN3_BASE_URL}/api/chat"
@@ -13045,7 +13188,8 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
                             if chat_id and _is_repetitive(chat_id, cleaned):
                                 log_ai_response(f"REPETITIVE_SKIPPED gid={chat_id}", raw, cleaned)
                                 return None
-                            log_ai_response(f"style={style} ctx={len(recent_ctx)} txt={user_text[:55]!r}", raw, cleaned)
+                            intent_str = (intent_info or {}).get('intent', 'general') if 'intent_info' in locals() else 'general'
+                            log_ai_response(f"intent={intent_str} style={style} ctx={len(recent_ctx)} txt={user_text[:55]!r}", raw, cleaned)
                             if chat_id:
                                 _record_bot_output(chat_id, cleaned)
                             return cleaned
@@ -13118,13 +13262,14 @@ async def handle_group_ai(event):
                 log_ai_response(f"fast:{fast}", reply, reply)
             return
 
-        # Build rich context: recent messages + recent exchanges
+        # Build rich context: recent messages + recent exchanges + group notes
         memory_ctx = list(group_chat_memory[chat_id])[-5:]
         exchange_lines = []
         for role, txt in list(group_exchange_history[chat_id])[-4:]:
             exchange_lines.append(f"{role}: {txt[:180]}")
+        notes_str = get_group_notes(chat_id)
         fresh_ctx = await fetch_recent_group_context(client, chat_id, limit=6)
-        ctx_for_llm = memory_ctx + [fresh_ctx] + exchange_lines
+        ctx_for_llm = memory_ctx + [fresh_ctx] + exchange_lines + ([f"notes: {notes_str}"] if notes_str else [])
 
         # Main LLM call (context-aware + history)
         response = await call_qwen3_natural(ctx_for_llm, text, chat_id=chat_id)
@@ -13139,6 +13284,9 @@ async def handle_group_ai(event):
         group_ai_last_response[chat_id] = now
         await event.reply(response)
         group_exchange_history[chat_id].append(("bot", response))
+        # Phase 2: auto learn simple facts
+        if any(k in response.lower() for k in ['ارسال', 'پرداخت', 'ساعت', 'ریتالین', 'اوزمپیک']):
+            add_group_note(chat_id, response[:160])
         slog(f"🤖 natural Qwen3 → {chat_id} ({len(response)}c)")
 
     except Exception as e:
