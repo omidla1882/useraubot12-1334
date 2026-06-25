@@ -13225,6 +13225,7 @@ async def check_qwen_health() -> bool:
 OWNER_IDS = set(int(x) for x in os.environ.get("USERBOT_OWNER_IDS", "").split(",") if x.strip())
 
 async def handle_owner_command(event):
+    global GROUP_AI_COOLDOWN_SECONDS
     if event.sender_id not in OWNER_IDS:
         return False
     text = (event.message.text or "").strip().lower()
@@ -13235,7 +13236,6 @@ async def handle_owner_command(event):
         return True
     if text.startswith("!cooldown "):
         try:
-            global GROUP_AI_COOLDOWN_SECONDS
             secs = int(text.split()[1])
             GROUP_AI_COOLDOWN_SECONDS = max(300, secs)
             await event.reply(f"cooldown={GROUP_AI_COOLDOWN_SECONDS}")
