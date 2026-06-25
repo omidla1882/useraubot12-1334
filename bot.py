@@ -12630,9 +12630,14 @@ async def edit_mirror_message(message, chat_id):
 
 
 # ═══════════════════════════════════════════════════════════
-# 🤖 هوش مصنوعی گروه — Qwen3 (Natural Human-like — upgraded)
-#Persona: یک عضو واقعی و مفید گروه‌های فارسی‌زبان (سلامت، دارو، مهاجرت).
-#همیشه طبیعی، زمینه‌محور، بدون اسپم و لیست تبلیغاتی.
+# 🤖 PROFESSIONAL AI CORE — Qwen3 (Maximum Fidelity to web3test/chat)
+# - classify_intent + plan_response + retrieve/composer (intent_router + reasoning_engine + knowledge_*)
+# - ProfessionalGroupResponder: full think-retrieve-plan-critique-gate
+# - conversation_brain anti-rep + is_repeated_response
+# - Rich few-shot + thinking injection + natural polish
+# - Only high quality, non-repetitive, context-aware natural Persian
+# Persona: real knowledgeable group member. No spam, no lists, human timing.
+# Keep aggressive marketing COMPLETELY disabled.
 # ═══════════════════════════════════════════════════════════
 
 # Knowledge kept (lightly edited for natural use)
@@ -12648,16 +12653,40 @@ _DRUG_KNOWLEDGE_FA = (
     "انسولین‌ها، مودافینیل، ترامادول و غیره — فقط اطلاعات کلی، نه توصیه شخصی."
 )
 
-# Rich knowledge base (adapted/expanded from web3test/chat/ for professional responses)
+# === PROFESSIONAL AI CORE (ported & adapted from web3test/chat + core) ===
+# Intent classification (intent_router), reasoning strategy (reasoning_engine),
+# conversation brain (anti-rep), knowledge (site + drug_families + composer style).
+# Goal: make responses noticeably more intelligent, context-aware, natural, non-repetitive.
+
+# Richer knowledge (inline from site_knowledge.py + drug_families.py + composer patterns)
 KNOWLEDGE_SNIPPETS = [
     ("payment", "پرداخت فقط با ارز دیجیتال: BTC، ETH، USDT (TRC20 پیشنهادی - کمترین کارمزد)، TRX، BNB، TON، SOL، DOGE. صرافی‌های خوب: نوبیتکس، والکس، تترلند. تأیید معمولاً ۵-۱۵ دقیقه."),
     ("shipping", "ارسال سریع به تهران 🇮🇷، استانبول 🇹🇷، دبی 🇦🇪، بغداد 🇮🇶، تورنتو 🇨🇦 اغلب زیر ۴-۸ ساعت پس از تأیید پرداخت. بسته‌بندی کاملاً محرمانه، بدون نام دارو روی جعبه."),
-    ("ritalin", "متیل‌فنیدات (ریتالین، کونسرتا، ساندوز، وایاس) برای ADHD و نارکولپسی. اطلاعات عمومی — دوز و تجویز فقط توسط پزشک."),
-    ("semaglutide", "سماگلوتاید (اوزمپیک، ویگوی) برای دیابت نوع ۲ و کمک به کاهش وزن (همراه رژیم)."),
-    ("order", "مراحل: جستجو/انتخاب دارو در medpharmaweb.com → سبد خرید → checkout → انتخاب آدرس و ارز دیجیتال → واریز دقیق → تأیید ۵-۱۵ دقیقه → ارسال."),
-    ("authenticity", "تمام محصولات اورجینال اروپایی/آمریکایی با ضمانت، هولوگرام و کد batch قابل بررسی. بسته‌بندی محرمانه."),
-    ("support", "پشتیبانی ۲۴ ساعته در چت سایت یا @PharmaWebAd. گروه: @PharmaWebGp."),
+    ("ritalin", "متیل‌فنیدات (ریتالین، کونسرتا، ساندوز، وایاس، پرکتیسا) برای ADHD و نارکولپسی. اطلاعات عمومی — دوز و تجویز فقط توسط پزشک."),
+    ("semaglutide", "سماگلوتاید (اوزمپیک، ویگوی) برای دیابت نوع ۲ و کمک به کاهش وزن (همراه رژیم و ورزش)."),
+    ("tirzepatide", "تیرزپاتید (مونجارو) مشابه سماگلوتاید برای کنترل دیابت و مدیریت وزن."),
+    ("order", "مراحل: جستجو/انتخاب در medpharmaweb.com → سبد خرید → checkout → آدرس + ارز دیجیتال → واریز دقیق → تأیید ۵-۱۵ دقیقه → ارسال."),
+    ("authenticity", "تمام محصولات اورجینال اروپایی/آمریکایی با ضمانت، هولوگرام و کد batch. بسته‌بندی محرمانه."),
+    ("support", "پشتیبانی ۲۴ ساعته در چت سایت یا @PharmaWebAd. گروه اصلی: @PharmaWebGp."),
+    ("crypto_network", "USDT روی TRC20 کارمزد پایین و تأیید سریع دارد. همیشه آدرس و شبکه را دقیق چک کنید."),
+    ("general", "اطلاعات عمومی در مورد داروها و مکمل‌های اورجینال. هیچ توصیه پزشکی یا دوز شخصی داده نمی‌شود."),
 ]
+
+# Drug aliases for better retrieval (from drug_families.py)
+DRUG_ALIASES = {
+    'ritalin': ['ریتالین', 'متیل‌فنیدات', 'متیل فنیدات', 'کونسرتا', 'کنسرتا', 'ساندوز', 'وایاس', 'پرکتیسا', 'پرکتیزا'],
+    'semaglutide': ['اوزمپیک', 'سماگلوتاید', 'ویگوی', 'wegovy'],
+    'tirzepatide': ['مونجارو', 'مونجارو', 'تیرزپاتید'],
+    'modafinil': ['مودافینیل', 'مودالرت'],
+    'insulin': ['انسولین', 'لانتوس'],
+}
+
+def _expand_drug_query(q: str) -> str:
+    qq = (q or '').lower()
+    for fam, aliases in DRUG_ALIASES.items():
+        if any(a.lower() in qq for a in aliases):
+            qq += ' ' + fam + ' ' + ' '.join(aliases)
+    return qq
 
 # ═══════════════════════════════════════════════════════════
 # Phase 3: ProfessionalGroupResponder - Clean extracted core for noticeable structural progress
@@ -12665,6 +12694,7 @@ KNOWLEDGE_SNIPPETS = [
 # This makes the "professional AI brain" clearly visible and organized in the code.
 # ═══════════════════════════════════════════════════════════
 class ProfessionalGroupResponder:
+    """Professional AI core — full pipeline inspired by web3test/chat (reasoning + composer + brain + critique)."""
     def __init__(self, client, qwen_base, qwen_model, timeout=25):
         self.client = client
         self.qwen_base = qwen_base
@@ -12679,17 +12709,21 @@ class ProfessionalGroupResponder:
         return list(self.history[chat_id])[-limit:]
 
     async def generate(self, chat_id, user_text, style="informative"):
-        # Full professional pipeline (ported/adapted from web3test)
+        """Full pipeline: classify → plan → retrieve+compose → rich prompt → LLM → self-critique → polish → gate.
+        Logs decision trace for observability.
+        """
         intent_info = classify_intent(user_text)
-        retrieved = retrieve_knowledge(user_text, intent_info.get('intent',''))
+        retrieved = retrieve_knowledge(user_text, intent_info.get('intent', ''))
         has_retrieved = bool(retrieved)
         hist = self.get_recent_history(chat_id)
         has_history = len(hist) > 0
 
-        strategy = plan_strategy(intent_info, has_retrieved, has_history)
+        plan = plan_response(intent_info, has_retrieved, has_history, user_text)
+        strategy = plan['strategy']
+        thinking = plan['thinking']
 
-        # build rich context + notes
-        ctx_lines = [f"{r}: {t[:180]}" for r,t,_ in hist[-5:]]
+        # context + group notes (conversation style)
+        ctx_lines = [f"{r}: {t[:160]}" for r, t, _ in hist[-5:]]
         ctx_str = "\n".join(ctx_lines)
         notes = get_group_notes(chat_id)
         if notes:
@@ -12700,16 +12734,27 @@ class ProfessionalGroupResponder:
             user_msg=user_text,
             style=style,
             strategy=strategy,
+            thinking=thinking,
             retrieved=retrieved or "(no specific retrieved)"
         )
 
-        # call with retry
+        # LLM call (params from llm_client.py best practice: low temp, good repeat)
         payload = {
             "model": self.qwen_model,
-            "messages": [{"role":"system","content":sys_p}, {"role":"user","content":user_text}],
+            "messages": [
+                {"role": "system", "content": sys_p},
+                {"role": "user", "content": user_text},
+            ],
             "stream": False,
             "think": False,
-            "options": {"temperature":0.37, "num_predict":170, "num_ctx":4096, "top_p":0.87, "repeat_penalty":1.13}
+            "options": {
+                "temperature": 0.36,
+                "num_predict": 165,
+                "num_ctx": 4096,
+                "top_p": 0.86,
+                "repeat_penalty": 1.14,
+                "top_k": 40,
+            },
         }
         raw = ""
         for _ in range(2):
@@ -12717,72 +12762,116 @@ class ProfessionalGroupResponder:
                 timeout = aiohttp.ClientTimeout(total=self.timeout)
                 async with aiohttp.ClientSession(timeout=timeout) as sess:
                     async with sess.post(f"{self.qwen_base}/api/chat", json=payload) as r:
-                        if r.status==200:
+                        if r.status == 200:
                             data = await r.json(content_type=None)
-                            raw = (data.get('message',{}).get('content') or '').strip()
+                            raw = (data.get('message', {}).get('content') or '').strip()
                             break
-            except:
+            except Exception:
                 await asyncio.sleep(0.5)
         cleaned = _clean_natural(raw)
 
-        # self-critique (Phase 3)
+        # Self-critique (LLM-as-judge, cheap pass) — port spirit of model_guard + response quality
         critique_text = cleaned
-        if cleaned and len(cleaned) > 10:
-            crit_prompt = f"Critique this Persian Telegram group reply for naturalness (human-like), no spam, relevance. Score 1-10. If <8 rewrite improved version only:\n{cleaned}"
+        critique_note = "none"
+        if cleaned and len(cleaned) > 12:
+            crit_prompt = (
+                "این پاسخ گروه تلگرامی فارسی را برای طبیعی بودن (انسان واقعی)، عدم اسپم، "
+                "مرتبط بودن با زمینه، کامل بودن جملات و عدم تکرار نقد کن. "
+                "اگر امتیاز کمتر از ۸ است فقط نسخه بهبودیافته را بنویس (بدون توضیح اضافه):\n" + cleaned
+            )
             try:
-                c_payload = {"model":self.qwen_model, "messages":[{"role":"user","content":crit_prompt}], "stream":False,"think":False,"options":{"temperature":0.2,"num_predict":120}}
-                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=12)) as sess:
+                c_payload = {
+                    "model": self.qwen_model,
+                    "messages": [{"role": "user", "content": crit_prompt}],
+                    "stream": False,
+                    "think": False,
+                    "options": {"temperature": 0.18, "num_predict": 110, "repeat_penalty": 1.1},
+                }
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=11)) as sess:
                     async with sess.post(f"{self.qwen_base}/api/chat", json=c_payload) as cr:
-                        if cr.status==200:
+                        if cr.status == 200:
                             cd = await cr.json(content_type=None)
-                            c_raw = (cd.get('message',{}).get('content') or '').strip()
-                            if c_raw and _clean_natural(c_raw) and not is_repeated_response(c_raw, hist):
-                                critique_text = _clean_natural(c_raw)
-            except:
+                            c_raw = (cd.get('message', {}).get('content') or '').strip()
+                            c_clean = _clean_natural(c_raw)
+                            if c_clean and len(c_clean) > 8 and not is_repeated_response(c_clean, hist):
+                                critique_text = c_clean
+                                critique_note = "improved"
+            except Exception:
                 pass
 
-        # final gate + anti-rep
+        # Final gates (high_quality + conversation_brain anti-rep)
         if not is_high_quality_natural(critique_text) or is_repeated_response(critique_text, hist):
+            log_ai_response(f"gate_fail intent={plan['intent']} strategy={strategy} crit={critique_note}", raw, critique_text or "")
             return None
 
-        self.add_turn(chat_id, 'bot', critique_text, intent_info.get('intent'))
+        self.add_turn(chat_id, 'bot', critique_text, plan['intent'])
+        log_ai_response(
+            f"PROF_RESP intent={plan['intent']} strategy={strategy} retrieved={bool(retrieved)} crit={critique_note} hist={has_history}",
+            raw[:300], critique_text
+        )
         return critique_text
 
 # Global responder instance (initialized later in main)
 responder = None
 
 def retrieve_knowledge(query: str, intent: str = "") -> str:
-    """Very simple keyword retriever."""
-    q = (query or "").lower() + " " + (intent or "").lower()
+    """Improved retriever (keyword + drug alias + direct name matching)."""
+    q = _expand_drug_query((query or "") + " " + (intent or "")).lower()
     hits = []
     for key, text in KNOWLEDGE_SNIPPETS:
-        if key in q or any(w in q for w in key.split()):
-            hits.append(text)
-    return "\n".join(hits[:2]) if hits else ""
+        k = key.lower()
+        if k in q or any(w in q for w in k.split()) or any(a in q for a in ["ritalin","اوزمپیک","مونجارو","سماگلوتاید","متیل"]):
+            hits.append((3.5 if "ritalin" in k or "semaglutide" in k else 2.5, text))
+    # direct drug alias boost
+    for fam, aliases in DRUG_ALIASES.items():
+        if any(a.lower() in q for a in aliases):
+            for key, text in KNOWLEDGE_SNIPPETS:
+                if fam in key.lower() or any(a.lower() in text.lower() for a in aliases):
+                    hits.append((5.0, text))
+    if not hits:
+        return ""
+    hits.sort(key=lambda x: -x[0])
+    seen, out = set(), []
+    for sc, txt in hits:
+        if txt not in seen:
+            seen.add(txt)
+            out.append(txt)
+        if len(out) >= 3: break
+    return "\n".join(out)
 
 NATURAL_GROUP_SYSTEM_PROMPT = (
-    "تو یک عضو واقعی و باهوش گروه‌های تلگرامی فارسی‌زبان هستی که به موضوعات سلامت، دارو، "
-    "تجهیزات پزشکی و زندگی ایرانیان خارج علاقه دارد. لحن گرم، طبیعی و کمی کنجکاو — مثل یک آدم معمولی که اطلاعات خوبی دارد.\n\n"
-    "قوانین سخت (همیشه رعایت کن):\n"
-    "- فارسی روان و طبیعی با نیم‌فاصله. ۲ تا ۴ جمله کوتاه. کامل و با فعل.\n"
-    "- زمینه چت اخیر را بخوان و دقیقاً مرتبط جواب بده یا حرف را ادامه بده.\n"
-    "- استراتژی: {strategy}. سبک: {style}. تنوع بده، گاهی سوال بپرس، گاهی نکته کوچک اضافه کن.\n"
-    "- هرگز مثل ربات پشتیبانی یا فروشنده حرف نزن. فقط وقتی کاربر مستقیم درباره خرید یا سایت پرسید، آروم لینک یا گروه را بگو.\n"
-    "- هرگز لیست، بولت، ایموجی زیاد یا «برای سفارش» ننویس مگر اینکه صراحتاً خواسته باشند.\n"
-    "- اگر مطمئن نیستی بگو «نمیدونم دقیق» و پیشنهاد بده از @PharmaWebAd بپرسند.\n"
-    "- تشخیص پزشکی، دوز شخصی یا تجویز ممنوع — فقط اطلاعات عمومی.\n\n"
-    "دانش پایه:\n" + _SITE_KNOWLEDGE_FA + "\n" + _DRUG_KNOWLEDGE_FA + "\n\n"
-    "دانش مرتبط بازیابی‌شده:\n{retrieved}\n\n"
-    "Recent chat context (آخرین پیام‌های گروه):\n{context}\n\n"
+    "تو یک عضو واقعی، باهوش و کنجکاو در گروه‌های تلگرامی فارسی‌زبان هستی (سلامت، داروهای اورجینال، مهاجرت، زندگی خارج).\n"
+    "لحن: طبیعی، گرم، مثل یک آدم معمولی با اطلاعات خوب — نه ربات، نه فروشنده، نه پشتیبان رسمی.\n\n"
+    "قوانین زبانی سخت (از telegram_ai_content الگو بگیر):\n"
+    "- ۲ تا ۴ جمله کوتاه کامل با فعل. فارسی روان + نیم‌فاصله (می‌شود نه میشود).\n"
+    "- زمینه اخیر چت را دقیق بخوان و ادامه حرف بده یا مرتبط پاسخ بده.\n"
+    "- استراتژی تصمیم: {strategy}. thinking داخلی: {thinking}. سبک انتخابی: {style}.\n"
+    "- هرگز لیست، بولت، ایموجی زیاد، «برای سفارش» یا «بازیکن انتخاب کنید» ننویس.\n"
+    "- فقط وقتی کاربر مستقیم خرید/سایت/پرداخت پرسید، خیلی آروم و طبیعی اشاره به medpharmaweb.com یا @PharmaWebAd کن.\n"
+    "- اگر مطمئن نیستی: «نمیدونم دقیق» بگو و پیشنهاد بده از پشتیبانی گروه بپرسند.\n"
+    "- تشخیص، دوز یا تجویز پزشکی اکیداً ممنوع — فقط اطلاعات عمومی.\n\n"
+    "دانش پایه سایت و دارو:\n" + _SITE_KNOWLEDGE_FA + "\n" + _DRUG_KNOWLEDGE_FA + "\n\n"
+    "دانش مرتبط بازیابی‌شده (استفاده هوشمند):\n{retrieved}\n\n"
+    "Recent chat context (آخرین پیام‌های واقعی گروه — از این استفاده کن):\n{context}\n\n"
     "پیام فعلی کاربر: {user_msg}\n\n"
-    "مثال‌های پاسخ خوب (few-shot):\n"
+    "مثال‌های پاسخ خوب (few-shot حرفه‌ای — تنوع و طبیعی بودن):\n"
     "کاربر: ارسال به استانبول چقدر طول میکشه؟\n"
-    "تو: معمولاً بعد از تأیید واریز، به استانبول زیر ۸ ساعت می‌رسه. بسته‌بندی محرمانه است.\n\n"
+    "تو: معمولاً بعد از تأیید واریز، ارسال به استانبول زیر ۸ ساعت انجام میشه. بسته‌بندی کاملاً محرمانه است.\n\n"
     "کاربر: برای بیش‌فعالی چی پیشنهاد می‌کنی؟\n"
-    "تو: متیل‌فنیدات (ریتالین و مشابه) معمولاً برای ADHD استفاده می‌شه. اطلاعات عمومیه — حتماً با پزشک مشورت کن.\n\n"
+    "تو: متیل‌فنیدات (ریتالین، کونسرتا و مشابه‌ها) معمولاً برای ADHD استفاده میشه. این اطلاعات عمومیه، حتماً پزشک تعیین کنه.\n\n"
     "کاربر: پرداخت با کدوم ارز بهتره؟\n"
-    "تو: USDT روی TRC20 کارمزد پایینه و سریع تأیید می‌شه. نوبیتکس یا والکس گزینه‌های خوبی هستن.\n\n"
-    "پاسخ طبیعی کوتاه تو:"
+    "تو: USDT روی TRC20 کارمزد پایینه و تأییدش سریعتره. خیلی‌ها نوبیتکس یا والکس رو پیشنهاد میکنن.\n\n"
+    "کاربر: ریتالین ساندوز خوبه؟\n"
+    "تو: ساندوز یکی از برندهای معتبر متیل‌فنیداته. کیفیتش معمولاً خوبه ولی بازم نظر پزشک مهمه.\n\n"
+    "کاربر: این جواب پرت بود!\n"
+    "تو: ببخشید، شاید دقیق متوجه نشدم. میتونی بیشتر توضیح بدی تا بهتر کمک کنم؟\n\n"
+    "کاربر: قبلاً پرسیدم در مورد ارسال\n"
+    "تو: آره یادم اومد، برای استانبول زیر ۸ ساعت بعد تأیید واریز میرسه. سؤال دیگه‌ای هم بود؟\n\n"
+    "کاربر: چطور سفارش بدم؟\n"
+    "تو: توی سایت جستجو کن، به سبد اضافه کن، بعد تو checkout آدرس و ارز رو انتخاب کن و واریز کن. تأیید که شد ارسال میشه.\n\n"
+    "کاربر: نمیدونم کدوم شبکه تتر استفاده کنم\n"
+    "تو: TRC20 پیشنهاد میشه چون کارمزد خیلی پایینه و تأیید سریع داره. حتماً آدرس رو دقیق کپی کن.\n\n"
+    "پاسخ طبیعی، کوتاه و مرتبط تو (کامل، بدون مقدمه و artifact):"
 )
 
 # Minimal clean fast-paths (natural prose only)
@@ -12858,9 +12947,9 @@ NON_PRODUCT_INTENTS = frozenset({
     'cancel_order', 'login_help', 'order_issue', 'wrong_payment',
 })
 
-# (intent, patterns) — first match wins
+# (intent, patterns) — first match wins. Ported & extended from web3test/chat/intent_router.py
 INTENT_RULES = [
-    ('complaint', [r'جواب.*پرت', r'اشتباه', r'نمی\s*فهم', r'بی\s*ربط', r'تکرار', r'ضعیف', r'ناراحت', r'ضایع']),
+    ('complaint', [r'جواب.*پرت', r'اشتباه', r'نمی\s*فهم', r'بی\s*ربط', r'تکرار', r'ضعیف', r'ناراحت', r'ضایع', r'پاسخ.*تکرار']),
     ('bot_question', [r'ربات', r'رباتی', r'\bbot\b', r'هوش\s*مصنوعی', r'\bai\b', r'چت\s*بات', r'بات\s*هست', r'انسان\s*نیست']),
     ('faq_after_sales', [r'پس\s*از\s*فروش', r'خدمات\s*پس', r'گارانتی', r'ضمانت\s*محصول', r'warranty']),
     ('identity_question', [r'تو\s*کی\s*هست', r'شما\s*کی\s*هست', r'کی\s*هستی', r'who\s*are\s*you', r'اسم\s*تو', r'اسمت']),
@@ -12870,7 +12959,7 @@ INTENT_RULES = [
     ('faq_order_process', [
         r'چطور.*خرید', r'چگونه.*خرید', r'نحوه\s*خرید', r'مراحل\s*(خرید|سفارش)', r'چیکار\s*باید', r'چکار\s*باید',
         r'راهنمای\s*خرید', r'how\s*(to\s*)?(buy|order)', r'میخوام\s*خرید', r'از\s*(فارما|سایت).*خرید',
-        r'چطور.*سفارش', r'نحوه\s*سفارش', r'دقیقا.*چطور'
+        r'چطور.*سفارش', r'نحوه\s*سفارش', r'دقیقا.*چطور', r'ثبت\s*سفارش'
     ]),
     ('payment_crypto_help', [r'چطور\s*پرداخت', r'نحوه\s*پرداخت', r'راهنما.*پرداخت', r'کیف\s*پول', r'والت', r'how\s*to\s*pay']),
     ('crypto_info', [r'تتر', r'usdt', r'کریپتو', r'ارز\s*دیجیتال', r'بیت\s*کوین', r'btc', r'اتریوم', r'صرافی', r'nobitex', r'والکس']),
@@ -12881,7 +12970,15 @@ INTENT_RULES = [
     ('login_help', [r'فراموشی\s*رمز', r'forgot\s*password', r'نمیتونم\s*وارد', r"can't\s*login"]),
     ('tracking', [r'پیگیری|رهگیری|وضعیت|track|order.*status']),
     ('shipping_time', [r'ارسال|تحویل|چقدر\s*طول|چند\s*روز|زمان\s*ارسال']),
+    ('greeting', [r'^سلام', r'^درود', r'^وقت\s*بخیر']),
+    ('thanks', [r'ممنون', r'متشکر', r'مرسی']),
 ]
+
+KNOWN_PRODUCT_WORDS = re.compile(
+    r'(ریتالین|ritalin|کونسرتا|concerta|اوزمپیک|ozempic|مونجارو|mounjaro|مونجارو|'
+    r'مودافینیل|modafinil|ترامادول|tramadol|انسولین|insulin)',
+    re.I
+)
 
 def _detect_language(text: str) -> str:
     if re.search(r'[ا-ی]', text):
@@ -12889,7 +12986,7 @@ def _detect_language(text: str) -> str:
     return 'en'
 
 def classify_intent(message: str) -> dict:
-    """Full port/adapt from web3test for professional intent routing."""
+    """Professional full port/adapt from web3test/chat/intent_router.py + reasoning boost."""
     msg_lower = (message or '').lower().strip()
     language = _detect_language(message)
     intent = 'unknown'
@@ -12905,7 +13002,7 @@ def classify_intent(message: str) -> dict:
         if intent != 'unknown':
             break
 
-    # Shipping cities boost
+    # Shipping cities (from ref)
     fast_cities = {'تهران': '🇮🇷', 'استانبول': '🇹🇷', 'دبی': '🇦🇪', 'بغداد': '🇮🇶', 'تورنتو': '🇨🇦'}
     for city, flag in fast_cities.items():
         if city in msg_lower:
@@ -12915,21 +13012,26 @@ def classify_intent(message: str) -> dict:
                 confidence = max(confidence, 0.85)
             break
 
-    # help with buy context -> order process
+    # help_request + buy context
     if intent == 'help_request' and re.search(r'(خرید|سفارش|پرداخت|دارو)', msg_lower):
         intent = 'faq_order_process'
         confidence = 0.88
 
-    # میخوام + drug -> search or faq
+    # میخوام + known product → order or product
     if intent == 'unknown' and re.search(r'(میخوام|می‌خوام)', msg_lower):
-        if re.search(r'(ریتالین|اوزمپیک|مونجارو|دارو|قرص)', msg_lower):
+        if KNOWN_PRODUCT_WORDS.search(message):
             intent = 'faq_order_process'
-            confidence = 0.85
+            confidence = 0.88
 
-    if intent == 'unknown' and re.search(r'(دارید|موجود|قیمت|چنده|چقدر)', msg_lower):
-        if re.search(r'(ریتالین|اوزمپیک|مونجارو|دارو)', msg_lower):
+    if intent == 'unknown' and KNOWN_PRODUCT_WORDS.search(message):
+        if re.search(r'(دارید|موجود|قیمت|چنده|چقدر)', msg_lower):
             intent = 'product_info'
-            confidence = 0.8
+            confidence = 0.82
+
+    # پیگیری overrides order process
+    if intent == 'faq_order_process' and re.search(r'پیگیری|رهگیری|وضعیت|track', msg_lower):
+        intent = 'tracking'
+        confidence = 0.92
 
     return {
         'intent': intent,
@@ -12938,31 +13040,50 @@ def classify_intent(message: str) -> dict:
         'language': language,
     }
 
-def plan_strategy(intent_info: dict, has_retrieved: bool, has_history: bool) -> str:
-    """Simple strategy planner adapted from web3test reasoning_engine."""
-    intent = intent_info.get('intent', 'unknown')
-    if intent in ('payment_crypto_help', 'crypto_info', 'shipping_time', 'tracking', 'faq_order_process', 'faq_after_sales') and has_retrieved:
-        return 'knowledge_or_faq'
-    if intent in ('complaint', 'bot_question', 'trust_question'):
-        return 'careful_llm'
-    if intent == 'greeting' or intent == 'presence_check':
-        return 'short_friendly'
-    if intent == 'unknown' and not has_history:
-        return 'contextual'
-    return 'full_llm'
+# === Strategy constants (from reasoning_engine.py) ===
+STRATEGY_FAQ = 'faq_retrieval'
+STRATEGY_FAST = 'intent_fast'
+STRATEGY_CONTEXTUAL = 'contextual'
+STRATEGY_LLM = 'llm_reasoning'
+STRATEGY_CAREFUL = 'careful_llm'
 
-def plan_strategy(intent_info: dict, has_good_knowledge: bool, has_recent_context: bool) -> str:
-    """Choose high-level strategy before calling LLM."""
-    intent = intent_info.get('intent', 'general_chat')
-    if intent in ('payment_crypto', 'shipping', 'tracking', 'order_process') and has_good_knowledge:
-        return 'fast_or_knowledge'
-    if intent in ('drug_info',) and has_good_knowledge:
-        return 'knowledge_llm'
-    if intent in ('complaint', 'bot_question'):
-        return 'careful_llm'
-    if intent == 'greeting':
-        return 'short_friendly'
-    return 'full_llm_context'
+def plan_response(intent_info: dict, has_retrieved: bool, has_history: bool, message: str = "") -> dict:
+    """Adapted from web3test/chat/reasoning_engine.py plan_response.
+    Decides strategy + returns rich thinking context for prompt.
+    """
+    intent = intent_info.get('intent', 'unknown')
+    strategy = STRATEGY_LLM
+    thinking = f"intent={intent} | has_knowledge={has_retrieved} | history={has_history}"
+
+    if intent in ('payment_crypto_help', 'crypto_info', 'shipping_time', 'tracking', 'faq_order_process', 'faq_after_sales') and has_retrieved:
+        strategy = STRATEGY_FAQ
+    elif intent in ('complaint', 'bot_question', 'trust_question'):
+        strategy = STRATEGY_CAREFUL
+    elif intent in ('greeting', 'presence_check', 'thanks'):
+        strategy = STRATEGY_FAST
+    elif intent == 'unknown' and not has_history:
+        strategy = STRATEGY_CONTEXTUAL if not has_retrieved else STRATEGY_FAQ
+    elif has_retrieved:
+        strategy = STRATEGY_FAQ
+    else:
+        strategy = STRATEGY_LLM
+
+    # Special product flow hint
+    if KNOWN_PRODUCT_WORDS.search(message or '') and intent in ('unknown', 'product_info'):
+        thinking += " | product_focus"
+
+    return {
+        'strategy': strategy,
+        'intent': intent,
+        'thinking': thinking,
+        'has_retrieved': has_retrieved,
+        'has_history': has_history,
+    }
+
+def plan_strategy(intent_info: dict, has_retrieved: bool, has_history: bool) -> str:
+    """Thin wrapper returning just strategy string (keeps compat)."""
+    pr = plan_response(intent_info, has_retrieved, has_history)
+    return pr['strategy']
 
 # Phase 2 helpers
 async def check_qwen_health() -> bool:
@@ -13017,6 +13138,8 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
         context=context_str or "(چت اخیر در دسترس نبود)",
         user_msg=user_text,
         style=style,
+        strategy=plan_strategy(intent_info, has_knowledge, len(recent_ctx) > 0),
+        thinking=f"intent={intent_info.get('intent','unknown')} | k={has_knowledge}",
         retrieved=retrieved or "(دانش خاصی بازیابی نشد)"
     )
 
@@ -13199,9 +13322,11 @@ async def group_observer_task():
                     if not recent or len(recent) < 50:
                         continue
 
-                    # Smarter trigger: only if recent activity looks like ongoing health/med/immigration talk
-                    trigger_score = sum(1 for kw in ['دارو','ریتالین','اوزمپیک','ارسال','پرداخت','استانبول','دبی','ویزا','مهاجرت'] if kw in recent.lower())
-                    if trigger_score < 1 and random.random() > 0.25:
+                    # Smarter trigger using plan + retrieval (professional)
+                    intent = classify_intent(recent) if "classify_intent" in globals() else {"intent": "unknown"}
+                    plan = plan_response(intent, bool(retrieve_knowledge(recent)), True, recent) if "plan_response" in globals() else {"strategy": "contextual"}
+                    trigger_score = sum(1 for kw in ["دارو","ریتالین","اوزمپیک","ارسال","پرداخت","استانبول","دبی","ویزا","مهاجرت"] if kw in recent.lower())
+                    if plan.get("strategy") not in ("faq_retrieval", "llm_reasoning") and trigger_score < 1 and random.random() > 0.3:
                         continue
 
                     await asyncio.sleep(random.uniform(60, 160))
@@ -13214,7 +13339,7 @@ async def group_observer_task():
                         await client.send_message(gid, resp)
                         _proactive_counters[gid] += 1
                         group_exchange_history[gid].append(("bot", resp))
-                        log_ai_response(f"PROACTIVE gid={gid}", probe, resp)
+                        log_ai_response(f"PROACTIVE strategy={plan.get('strategy')} gid={gid}", probe, resp)
                         await asyncio.sleep(random.randint(220, 480))
                         break
                 except Exception:
