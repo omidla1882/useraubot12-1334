@@ -423,22 +423,22 @@ GROUP_AI_TIMEOUT_SECONDS = 25     # حداکثر زمان انتظار برای 
 # 📨 ارسال پیام خصوصی (PM) به کاربران
 # True = فعال | False = غیرفعال
 # ⚠️ ریسک: بالا - ممکن است منجر به PeerFlood یا UserBanned شود
-ENABLE_PM_SENDING = False  # 🟢 فعال شد
+ENABLE_PM_SENDING = False  # 🟢 غیرفعال برای جلوگیری از بن
 
 # ➕ اضافه کردن مستقیم اعضا به گروه (Direct Add/Invite)
 # True = فعال | False = غیرفعال  
 # ⚠️ ریسک: خیلی بالا - ممکن است منجر به FloodWait طولانی یا بن شود
-ENABLE_DIRECT_ADD = True  # 🟢 فعال شد
+ENABLE_DIRECT_ADD = False  # 🔴 غیرفعال - بسیار خطرناک برای حساب کاربر
 
 # 🔍 جستجو و عضویت در گروه‌های جدید
 # True = فعال | False = غیرفعال
 # ⚠️ ریسک: متوسط - ممکن است منجر به ChannelsTooMuch شود
-ENABLE_GROUP_SEARCH = True
+ENABLE_GROUP_SEARCH = False  # 🔴 غیرفعال - ریسک بن سریع
 
 # 👥 جمع‌آوری اطلاعات اعضا از گروه‌ها (Scraping)
 # True = فعال | False = غیرفعال
 # ⚠️ ریسک: پایین تا متوسط
-ENABLE_MEMBER_SCRAPING = True
+ENABLE_MEMBER_SCRAPING = False  # 🔴 غیرفعال - ریسک تشخیص و بن
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🧹 سیستم مدیریت گروه‌های کم‌عضو (LOW MEMBER GROUP MANAGEMENT)
@@ -489,7 +489,13 @@ RESTRICTED_CHECK_INTERVAL = 3600  # هر 30 دقیقه بررسی
 # 🔗 سیستم عضویت خودکار از لیست لینک‌ها (Auto Join from Links)
 # ═══════════════════════════════════════════════════════════
 # فعال/غیرفعال کردن عضویت خودکار از لینک‌ها
-ENABLE_AUTO_JOIN_FROM_LINKS = True  # 🟢 True = فعال | False = غیرفعال
+ENABLE_AUTO_JOIN_FROM_LINKS = False  # 🔴 غیرفعال - لیست ۳۰۰+ گروهی باعث بن سریع شد
+
+# ═══════════════════════════════════════════════════════════
+# 🚨 SAFETY OVERRIDE - برای جلوگیری از بن مجدد (Crisis Mode)
+# ═══════════════════════════════════════════════════════════
+SAFE_MODE = True          # اگر True باشد، همه عملیات پرریسک غیرفعال می‌شوند
+ACCOUNT_HEALTHY = True    # توسط مانیتور به‌روزرسانی می‌شود
 
 # تنظیمات بهینه‌سازی شده برای کاهش ریسک FloodWait ⚠️
 AUTO_JOIN_DELAY_MIN = 180  # 🔒 حداقل 3 دقیقه (افزایش برای جلوگیری از FloodWait)
@@ -508,354 +514,8 @@ AUTO_JOIN_STATE_FILE = "auto_join_state.json"  # فایل ذخیره وضعیت
 # 🎯 اولویت‌بندی: 1. ترید/کریپتو 2. مهاجرت 3. متفرقه
 # ═══════════════════════════════════════════════════════════
 AUTO_JOIN_LINKS = [
-
-" https://t.me/unftbn " ,
-" https://t.me/daroushafatorghabe " ,
-" https://t.me/xBourse62 " ,
-" https://t.me/aisaamed " ,
-" https://t.me/Iranian_kharej_az_vatan " ,
-" https://t.me/medicinesworldsss " ,
-" https://t.me/WhaleFarsChat " ,
-" https://t.me/hsiushso " ,
-" https://t.me/falezaman " ,
-" https://t.me/kharidmelki " ,
-" https://t.me/ankara_ir " ,
-" https://t.me/Tronlive001 " ,
-" https://t.me/trxusdtplataformas " ,
-" https://t.me/plmoknijbuhvvb " ,
-" https://t.me/pezeshkar " ,
-" https://t.me/panahjoyankurdiran1 " ,
-" https://t.me/panahande_fa " ,
-" https://t.me/MonoAIwallet " ,
-" https://t.me/mandegarr1402 " ,
-" https://t.me/LabJobOfficial " ,
-" https://t.me/hrgpc " ,
-" https://t.me/ardabildarookhaneh " ,
-" https://t.me/WestIstanbul " ,
-" https://t.me/tabligatbahrestan " ,
-" https://t.me/norvlll " ,
-" https://t.me/tecauto " ,
-" https://t.me/divare_canada " ,
-" https://t.me/torontosaleshome " ,
-" https://t.me/ShirazToronto1 " ,
-" https://t.me/uberandtaxi " ,
-" https://t.me/Immigrationconsultantlayer " ,
-" https://t.me/iranian_usa2 " ,
-" https://t.me/homeServicerepairs " ,
-" https://t.me/divaremehrabanikheyrie " ,
-" https://t.me/ArzeDigital_Biedea " ,
-" https://t.me/keivansunlife " ,
-" https://t.me/utt6h " ,
-" https://t.me/gdryb " ,
-" https://t.me/WhaleFarsChat " ,
-" https://t.me/safirservices " ,
-" https://t.me/darashop_co " ,
-" https://t.me/falezaman " ,
-" https://t.me/etceh " ,
-" https://t.me/Sarmayegnozarieksirr0056 " ,
-" https://t.me/ankara_ir " ,
-" https://t.me/vamyar1gdhjkhcxhgjghjv " ,
-" https://t.me/khanegiir " ,
-" https://t.me/vam_qqqqqqqq " ,
-" https://t.me/mortezasoleimani108300 " ,
-" https://t.me/Real_pay_platform1 " ,
-" https://t.me/Trustedplatform9 " ,
-" https://t.me/trustedproject_2025 " ,
-" https://t.me/trxusdtplataformas " ,
-" https://t.me/BSXProtocol_Official " ,
-" https://t.me/Prime_Yield " ,
-" https://t.me/hrgpc " ,
-" https://t.me/zonacrypto94 " ,
-" https://t.me/TronDef20 " ,
-" https://t.me/SURNAME_2026 " ,
-" https://t.me/Gaumontofficialgroup " ,
-" https://t.me/trxusdtplataformas2 " ,
-" https://t.me/trxusdtplataformas1 " ,
-" https://t.me/BitHarvestSupergroup " ,
-" https://t.me/dog_bank_chat " ,
-" https://t.me/JulioTradersGrupo_1 " ,
-" https://t.me/YOUHODLER06 " ,
-" https://t.me/istanbul_daroo " ,
-" https://t.me/NamayeshgahdaranTehran21 " ,
-" https://t.me/FREE_FIRE_ur " ,
-" https://t.me/refral_web " ,
-" https://t.me/mohajeraneturkye2020 " ,
-" https://t.me/theahmadireligionfarsi " ,
-" https://t.me/engineers767 " ,
-" https://t.me/tebshimiexirpasargad2 " ,
-" https://t.me/china1300 " ,
-" https://t.me/medicalanddental1 " ,
-" https://t.me/lranhealth " ,
-" https://t.me/gharbe_istanbul_hamechiz " ,
-" https://t.me/drugshoppingcenter " ,
-" https://t.me/daroiraniraq " ,
-" https://t.me/karyabi_mohajrin " ,
-" https://t.me/panahande_fa " ,
-" https://t.me/bazartajhizat " ,
-" https://t.me/tejaratgroup " ,
-" https://t.me/iraqbizz " ,
-" https://t.me/persian_canada " ,
-" https://t.me/IranianResidentUae " ,
-" https://t.me/noskhekhanidrug " ,
-" https://t.me/hamyariiranianizmir " ,
-" https://t.me/farsizabananistanbul " ,
-" https://t.me/lran_kanada " ,
-" https://t.me/tablighatkhabgah " ,
-" https://t.me/AtheistRepublicPersian " ,
-" https://t.me/freetablightachhiz " ,
-" https://t.me/gtejaratekalan " ,
-" https://t.me/iranianmohajerizmir " ,
-" https://t.me/rentvancouver " ,
-" https://t.me/UsdtTrx_earners " ,
-" https://t.me/iranianguide " ,
-" https://t.me/Migration1403 " ,
-" https://t.me/hemayatazkasb " ,
-" https://t.me/eshteghaliran " ,
-" https://t.me/Satzde " ,
-" https://t.me/iraniangermanyy " ,
-" https://t.me/physiotherap97 " ,
-" https://t.me/EnglishTeachersCamp " ,
-" https://t.me/iraniyanTajikistan " ,
-" https://t.me/ankara_ir " ,
-" https://t.me/medlab_1 " ,
-" https://t.me/istanbul_iri " ,
-" https://t.me/divaregiahanedarouei " ,
-" https://t.me/medlabadvertising " ,
-" https://t.me/pezeshkar " ,
-" https://t.me/hamyariCo " ,
-" https://t.me/zisttashkhisads " ,
-" https://t.me/isaarir " ,
-" https://t.me/turkye_iri " ,
-" https://t.me/china2dubai " ,
-" https://t.me/LabJobOfficial " ,
-" https://t.me/panahjoyankurdiran1 " ,
-" https://t.me/Iran_turkish_group " ,
-" https://t.me/azim_home_items " ,
-" https://t.me/kolbe_roman_gp " ,
-" https://t.me/technician8111 " ,
-" https://t.me/Iranian_kharej_az_vatan " ,
-" https://t.me/tajhizatazmayeshgah " ,
-" https://t.me/hamkhoneyabiesenyurt " ,
-" https://t.me/vpn_ip_iran_novin " ,
-" https://t.me/rasan2154 " ,
-" https://t.me/psghozzati " ,
-" https://t.me/vamforimelal73 " ,
-" https://t.me/sahmyabii " ,
-" https://t.me/PharmaceuticalWorld " ,
-" https://t.me/Doctorscamp1 " ,
-" https://t.me/StocksETF " ,
-" https://t.me/turkey24h " ,
-" https://t.me/gtlissofbc " ,
-" https://t.me/ZMMoFa8Yu " ,
-" https://t.me/niazmandi_dubai " ,
-" https://t.me/irugroup " ,
-" https://t.me/khademati " ,
-" https://t.me/sarmayeh_omid " ,
-" https://t.me/masnxnd " ,
-" https://t.me/ParastariTehran1 " ,
-" https://t.me/beauty_plus1400 " ,
-" https://t.me/ezdavajirane " ,
-" https://t.me/alborz445 " ,
-" https://t.me/tabligh2025tajrobh " ,
-" https://t.me/whmcsgr " ,
-" https://t.me/pezeshkar " ,
-" https://t.me/farma_madia " ,
-" https://t.me/worklifecanada " ,
-" https://t.me/tajhizatpezeshkiiiii " ,
-" https://t.me/jivenachralmashhad " ,
-" https://t.me/modirrep_mashhad " ,
-" https://t.me/daroushafatorghabe " ,
-" https://t.me/niazmandihayepezeshki " ,
-" https://t.me/jjBuejr " ,
-" https://t.me/Pezeshki_Group313 " ,
-" https://t.me/karyabi_pezeshki " ,
-" https://t.me/tajhizat_pezeshkiy " ,
-" https://t.me/cananadairanian " ,
-" https://t.me/iranianmohajerizmir " ,
-" https://t.me/bazarTajhizaPezeshki " ,
-" https://t.me/WestIstanbul " ,
-" https://t.me/azadtajhizat " ,
-" https://t.me/afranews_canada_iranian " ,
-
-# ═══════════════════════════════════════════════════════════
-# 🥉 اولویت 3: گروه‌های قبلی (متفرقه)
-# ═══════════════════════════════════════════════════════════
-
-" https://t.me/Pernovareview_chat " ,
-" https://t.me/tebshimiexirpasargad2 " ,
-" https://t.me/istanbul_iri " ,
-" https://t.me/daroei_osveh " ,
-" https://t.me/CEA_tabriz " ,
-" https://t.me/dezahravii " ,
-" https://t.me/Mrm7654 " ,
-" https://t.me/vpn_ip_iran_novin " ,
-" https://t.me/Iranian_kharej_az_vatan " ,
-" https://t.me/darei_amin " ,
-" https://t.me/veterinaryJobsIran " ,
-" https://t.me/Arya_sabadgardani " ,
-" https://t.me/satras_bourse " ,
-" https://t.me/kanalmoshverawkla " ,
-" https://t.me/sabadgardani_neshan " ,
-" https://t.me/arabiacademy_gp " ,
-" https://t.me/shetehran " ,
-" https://t.me/shafa_shareholders " ,
-" https://t.me/Basic_Sciences_Association " ,
-" https://t.me/samangostaresfahan1404 " ,
-" https://t.me/mahsolate_organic_iran " ,
-" https://t.me/deaveh " ,
-" https://t.me/soltandefara1 " ,
-" https://t.me/deabour " ,
-" https://t.me/AKOKIA_OMAN " ,
-" https://t.me/artemis_teeb " ,
-" https://t.me/mehranGroupltdturke " ,
-" https://t.me/razeneshatt " ,
-" https://t.me/vbehdasht_iran " ,
-" https://t.me/Community_Physicians " ,
-" https://t.me/hjghjkokj " ,
-" https://t.me/nursejobusa1 " ,
-" https://t.me/HamrahyBimarTehran1 " ,
-" https://t.me/masirclinic " ,
-" https://t.me/datisgroupec2 " ,
-" https://t.me/drpouraliii " ,
-" https://t.me/razepenhansalamatiZhemati1998 " ,
-" https://t.me/eksirfareeks " ,
-" https://t.me/FintechNewNexus " ,
-" https://t.me/LightweightAI01 " ,
-" https://t.me/sheyporteb " ,
-" https://t.me/azmoontojihimodavemm " ,
-" https://t.me/geijiis " ,
-" https://t.me/iranactivebrokers " ,
-" https://t.me/seygd " ,
-" https://t.me/giftbook1400 " ,
-" https://t.me/boursedaro " ,
-" https://t.me/iraniangermanyy " ,
-" https://t.me/BTC0USDT0TRX " ,
-" https://t.me/dgtbj " ,
-" https://t.me/sabz_teb " ,
-" https://t.me/xBourse62 " ,
-" https://t.me/mandegarr1402 " ,
-" https://t.me/globalcryptofreelink " ,
-" https://t.me/azemayeshgahi " ,
-" https://t.me/ketaboulumpezeshki " ,
-" https://t.me/CanadianTrade " ,
-" https://t.me/farma_madia " ,
-" https://t.me/iraniandubaiguide " ,
-" https://t.me/kardarmalll " ,
-" https://t.me/danshjoproject " ,
-" https://t.me/niazmandihayalman " ,
-" https://t.me/panahande_fa " ,
-" https://t.me/MonoAIwallet " ,
-" https://t.me/canadafinancialworkshops " ,
-" https://t.me/canada_opportunity " ,
-" https://t.me/iranian_canadian_society " ,
-" https://t.me/MonoAIwallet " ,
-" https://t.me/canadafinancialworkshops " ,
-" https://t.me/canada_opportunity " ,
-" https://t.me/nemonehkhonegi " ,
-" https://t.me/melal_vamforl " ,
-" https://t.me/dastedovomistanbul " ,
-" https://t.me/LabJobOfficial " ,
-" https://t.me/talaryaranturkey " ,
-" https://t.me/Daria_tejaratjahan " ,
-" https://t.me/zaferuni " ,
-" https://t.me/iranian_business_center " ,
-" https://t.me/kharidekhane_alman " ,
-" https://t.me/AKOKIA_OMAN " ,
-" https://t.me/FinancialCenter " ,
-" https://t.me/nursejobusa1 " ,
-" https://t.me/whatchat33 " ,
-" https://t.me/vammelidori " ,
-" https://t.me/masirclinic " ,
-" https://t.me/matabezananmamaie " ,
-" https://t.me/themediversecenter " ,
-" https://t.me/Istanb13 " ,
-" https://t.me/datisgroupec2 " ,
-" https://t.me/kardarmanzelk1 " ,
-" https://t.me/salamati4041 " ,
-" https://t.me/razepenhansalamatiZhemati1998 " ,
-" https://t.me/beauty_saghar1992 " ,
-" https://t.me/CenteroftheUnitedStatesofAmerica " ,
-" https://t.me/lepaamgroup " ,
-" https://t.me/eshteghaliran " ,
-" https://t.me/iranian_11 " ,
-" https://t.me/qweryop759 " ,
-" https://t.me/tajrobh2025 " ,
-" https://t.me/niyazmandihayeistanbul " ,
-" https://t.me/istabliq " ,
-" https://t.me/Booksharing_free " ,
-" https://t.me/Elenakhodro " ,
-" https://t.me/albasehbimarestani " ,
-" https://t.me/iranartworksellers " ,
-" https://t.me/bamedical " ,
-" https://t.me/DanehaCom " ,
-" https://t.me/xBourse62 " ,
-" https://t.me/aisaamed " ,
-" https://t.me/iranactivebrokers " ,
-" https://t.me/irancurrencytrading " ,
-" https://t.me/gfghnur " ,
-" https://t.me/safirservices " ,
-" https://t.me/azmoontojihimodavemm " ,
-" https://t.me/tabligh2025tajrobh " ,
-" https://t.me/hamkhoneyabiesenyurt " ,
-" https://t.me/canada_opportunity " ,
-" https://t.me/worklifecanada " ,
-" https://t.me/jahadbiomedical " ,
-" https://t.me/farex_sarmaie12 " ,
-" https://t.me/fnmkinzaq " ,
-" https://t.me/Microkaa " ,
-" https://t.me/ezdavajirane " ,
-" https://t.me/FinancialCenter " ,
-" https://t.me/mehranGroupltdturke " ,
-" https://t.me/vhjebbendhhvc " ,
-" https://t.me/nursejobusa1 " ,
-" https://t.me/mahsolatesalomeh " ,
-" https://t.me/MediLuxe2025 " ,
-" https://t.me/cnvntnxnrns " ,
-" https://t.me/Sodormadarkk " ,
-" https://t.me/ifrirani " ,
-" https://t.me/AquarGem " ,
-" https://t.me/dhdbuxybsnskubmvcvf2024 " ,
-" https://t.me/matabezananmamaie " ,
-" https://t.me/salamati4041 " ,
-" https://t.me/drpouraliii " ,
-" https://t.me/moshavarehkhanevadeh " ,
-" https://t.me/sarmayeh_omid " ,
-" https://t.me/sefr_foroshan " ,
-" https://t.me/exirdaro " ,
-" https://t.me/Pernovareview_chat " ,
-" https://t.me/airdropMaxine " ,
-" https://t.me/beautyclinictoronto " ,
-" https://t.me/china2dubai " ,
-" https://t.me/daroiraniraq " ,
-" https://t.me/lran_kanada " ,
-" https://t.me/CEA_tabriz " ,
-" https://t.me/Vasete_Dadgar " ,
-" https://t.me/Rusitrading " ,
-" https://t.me/iranianedubai " ,
-" https://t.me/khorshidomrani " ,
-" https://t.me/abadees_group " ,
-" https://t.me/albasehbimarestani " ,
-" https://t.me/felezyabbhtr " ,
-" https://t.me/karyabieIran1401 " ,
-" https://t.me/iranartworksellers " ,
-" https://t.me/kolbe_roman_gp " ,
-" https://t.me/Booksharing_free " ,
-" https://t.me/iranactivebrokers " ,
-" https://t.me/irancurrencytrading " ,
-" https://t.me/vpn_ip_iran_novin " ,
-" https://t.me/Iranian_kharej_az_vatan " ,
-" https://t.me/darei_amin " ,
-" https://t.me/veterinaryJobsIran " ,
-" https://t.me/Arya_sabadgardani " ,
-" https://t.me/satras_bourse " ,
-" https://t.me/kanalmoshverawkla " ,
-" https://t.me/sabadgardani_neshan " ,
-" https://t.me/arabiacademy_gp " ,
-" https://t.me/FARZAMLINE_Group " ,
-" https://t.me/shafa_shareholders " ,
-" https://t.me/Basic_Sciences_Association " ,
-" https://t.me/prop_bartar " ,
-
+    # فقط گروه رسمی - لیست بزرگ قبلی باعث بن سریع شد
+    "https://t.me/PharmaWebGp",
 ]
 
 # متریک‌های عملکرد (Performance Metrics)
@@ -12405,9 +12065,9 @@ async def scrape_group_members():
     
     while True:
         try:
-            # ⚠️ بررسی سوییچ scraping
-            if not ENABLE_MEMBER_SCRAPING:
-                await asyncio.sleep(60)
+            # ⚠️ بررسی سوییچ scraping + ایمنی
+            if not ENABLE_MEMBER_SCRAPING or not ACCOUNT_HEALTHY or SAFE_MODE:
+                await asyncio.sleep(300)
                 continue
             
             if not groups:
@@ -12563,10 +12223,10 @@ async def invite_members_to_target():
     
     while True:
         try:
-            # ⚠️ بررسی سوییچ‌های عملیات پرریسک
-            if not ENABLE_DIRECT_ADD and not ENABLE_PM_SENDING:
-                # هر دو عملیات غیرفعال - فقط منتظر بمان
-                await asyncio.sleep(60)
+            # ⚠️ بررسی سوییچ‌های عملیات پرریسک + ایمنی حساب
+            if not ENABLE_DIRECT_ADD and not ENABLE_PM_SENDING or not ACCOUNT_HEALTHY or SAFE_MODE:
+                # عملیات غیرفعال یا حساب مشکل دارد
+                await asyncio.sleep(300)
                 continue
             
             # 🛡️ چک سلامت
@@ -13336,8 +12996,8 @@ async def handle_group_ai(event):
     - Quality gate + natural prompt
     - Mentions always answered; other triggers + occasional proactive
     """
-    if not ENABLE_GROUP_AI:
-        return
+    if not ENABLE_GROUP_AI or not ACCOUNT_HEALTHY:
+        return  # حتی پاسخ هوشمند هم اگر حساب مشکل داشته باشد نزنیم
 
     try:
         text = (event.message.text or '').strip()
@@ -13425,8 +13085,8 @@ async def group_observer_task():
 
     while True:
         try:
-            if not (ENABLE_GROUP_AI and PROACTIVE_ENABLED):
-                await asyncio.sleep(300)
+            if not (ENABLE_GROUP_AI and PROACTIVE_ENABLED) or not ACCOUNT_HEALTHY or SAFE_MODE:
+                await asyncio.sleep(600)
                 continue
 
             if date.today() != _proactive_day:
@@ -13541,9 +13201,9 @@ async def auto_join_from_links():
                 await asyncio.sleep(min(remaining, 300))  # هر 5 دقیقه چک کن
                 continue
             
-            # 🔴 بررسی فعال بودن سیستم
-            if not ENABLE_AUTO_JOIN_FROM_LINKS:
-                await asyncio.sleep(60)
+            # 🔴 بررسی فعال بودن سیستم + ایمنی
+            if not ENABLE_AUTO_JOIN_FROM_LINKS or not ACCOUNT_HEALTHY or SAFE_MODE:
+                await asyncio.sleep(300)
                 continue
             
             # 🔴 بررسی اتصال کلاینت
@@ -13915,9 +13575,10 @@ async def main():
     # ⚠️ نمایش وضعیت سوییچ‌های عملیات پرریسک
     slog("⚠️ وضعیت عملیات پرریسک:")
     slog(f"   • 📨 ارسال PM: {'🟢 فعال' if ENABLE_PM_SENDING else '🔴 غیرفعال'}")
-    slog(f"   • ➕ اضافه مستقیم: {'🟢 فعال' if ENABLE_DIRECT_ADD else '🔴 غیرفعال'}")
+    slog(f"   • ➕ اضافه مستقیم: {'🟢 فعال' if ENABLE_DIRECT_ADD else '🔴 غیرفعال'} (SAFE: {SAFE_MODE})")
     slog(f"   • 🔍 جستجوی گروه: {'🟢 فعال' if ENABLE_GROUP_SEARCH else '🔴 غیرفعال'}")
     slog(f"   • 👥 جمع‌آوری اعضا: {'🟢 فعال' if ENABLE_MEMBER_SCRAPING else '🔴 غیرفعال'}")
+    print(f"🚨 SAFE_MODE={SAFE_MODE}  ACCOUNT_HEALTHY={ACCOUNT_HEALTHY}", flush=True)
     slog(f"   • 📢 تبلیغات گروهی: {'🟢 فعال' if ENABLE_BROADCAST else '🔴 غیرفعال'}")
     slog(f"   • 🤖 هوش مصنوعی گروه: {'🟢 فعال' if ENABLE_GROUP_AI else '🔴 غیرفعال'} (Qwen3 NATURAL v2 — context+human-sim+gate, proactive enabled)")
     slog("-" * 60)
@@ -13992,8 +13653,11 @@ async def main():
     asyncio.create_task(railway_resource_cleanup())  # پاکسازی حافظه
     
     # ⚔️ سیستم دعوت اعضا به @PharmaWebGp
-    asyncio.create_task(scrape_group_members())  # جمع‌آوری اعضا برای دعوت
-    asyncio.create_task(invite_members_to_target())  # دعوت اعضا به گروه هدف
+    if not SAFE_MODE or not ACCOUNT_HEALTHY:
+        print("🚫 Scraping and inviting DISABLED for safety (SAFE_MODE or account unhealthy)", flush=True)
+    else:
+        asyncio.create_task(scrape_group_members())  # جمع‌آوری اعضا برای دعوت
+        asyncio.create_task(invite_members_to_target())  # دعوت اعضا به گروه هدف
     
     # 🔧 تسک‌های ضروری
     asyncio.create_task(keep_alive())  # نگه‌داشتن اتصال
@@ -14008,7 +13672,10 @@ async def main():
     asyncio.create_task(delayed_broadcast_start())  # شروع با تاخیر
     
     # 🔍 جستجوی گروه‌ها - با تاخیر اولیه
-    asyncio.create_task(delayed_search_start())  # شروع با تاخیر
+    if SAFE_MODE and ACCOUNT_HEALTHY and ENABLE_GROUP_SEARCH:
+        asyncio.create_task(delayed_search_start())
+    else:
+        print("🚫 Group search disabled for safety", flush=True)
     
     # 🧹 تسک‌های کم‌اولویت - با تاخیر طولانی
     asyncio.create_task(cleanup_dead_groups())  # پاکسازی گروه‌ها
@@ -14016,7 +13683,10 @@ async def main():
     asyncio.create_task(leave_restricted_groups())  # خروج از گروه‌های بسته
     
     # 🔗 عضویت از لینک‌ها - با تاخیر
-    asyncio.create_task(auto_join_from_links())
+    # Already guarded inside the task + flag is False now
+
+    # 🚨 مانیتور سلامت حساب (جدید برای جلوگیری از بن)
+    asyncio.create_task(monitor_account_health())
     
     # 📊 آمار Auto-Join
     if ENABLE_AUTO_JOIN_FROM_LINKS and AUTO_JOIN_LINKS:
@@ -14345,6 +14015,37 @@ async def smart_timing_controller():
 async def health_check(request):
     """Simple healthcheck endpoint for Railway"""
     return web.Response(text="OK", status=200)
+
+# ═══════════════════════════════════════════════════════════
+# 🚨 Account Health Monitor (Crisis addition)
+# ═══════════════════════════════════════════════════════════
+async def monitor_account_health():
+    """بررسی مداوم وضعیت حساب برای تشخیص محدودیت یا بن"""
+    global ACCOUNT_HEALTHY
+    await asyncio.sleep(30)  # صبر اولیه
+
+    while True:
+        try:
+            if not SAFE_MODE:
+                await asyncio.sleep(300)
+                continue
+
+            # تست ساده: گرفتن لیست دیالوگ‌ها (اگر محدود باشد ارور می‌دهد)
+            try:
+                dialogs = await client.get_dialogs(limit=1)
+                if not ACCOUNT_HEALTHY:
+                    print("✅ Account seems healthy again", flush=True)
+                ACCOUNT_HEALTHY = True
+            except Exception as e:
+                err = str(e).lower()
+                if any(x in err for x in ['restricted', 'banned', 'flood', 'spam', 'peerflood', 'write forbidden']):
+                    if ACCOUNT_HEALTHY:
+                        print(f"🚨 ACCOUNT RESTRICTED/BANNED DETECTED: {e}", flush=True)
+                    ACCOUNT_HEALTHY = False
+
+            await asyncio.sleep(600)  # هر ۱۰ دقیقه چک کن
+        except Exception:
+            await asyncio.sleep(300)
 
 async def start_web_server():
     """Start a minimal web server for Railway health checks and keep-alive"""
