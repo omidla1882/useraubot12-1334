@@ -267,23 +267,41 @@ def _persian_normalize(t: str) -> str:
     return t.strip()
 
 def is_high_quality_natural(text: str) -> bool:
-    if not text or len(text) < 12 or len(text) > 650:
+    if not text or len(text) < 10 or len(text) > 700:
         return False
     t = _persian_normalize(text)
     # Must have verb-ish ending or proper sentence end
-    ends = ('.', '!', '؟', '»', '،', '…')
-    verb_endings = ('می‌شود', 'می‌کند', 'دارد', 'است', 'هستند', 'می‌توان', 'می‌باشد', 'شود', 'کنید', 'هست')
+    ends = ('.', '!', '؟', '»', '،', '…', '"', ')', ':', '-')
+    verb_endings = (
+        'می‌شود', 'می‌کند', 'دارد', 'است', 'هستند', 'می‌توان', 'می‌باشد',
+        'شود', 'کنید', 'هست', 'بگیرید', 'میشه', 'میکنه', 'داره', 'بودم',
+        'بوده', 'کرده', 'شده', 'میگن', 'میدونم', 'میدونی', 'میره', 'بشه',
+        'کنم', 'کنه', 'کنیم', 'بکنید', 'بکنم', 'بده', 'بگو', 'بگید',
+        'هستی', 'هستیم', 'ندارم', 'ندارید', 'دارین', 'میتونی', 'میتونم',
+        'میدونن', 'باشه', 'باشد', 'نداری', 'میکنم', 'میشم', 'میکنیم',
+        'بیشتره', 'بهتره', 'سریعتره', 'کمتره', 'راحتره', 'مهمه', 'درسته',
+    )
     if not (any(t.endswith(c) for c in ends) or any(t.endswith(v) for v in verb_endings)):
-        return False
+        # Allow if response is a complete-looking sentence with Persian content
+        has_persian = bool(_re.search(r'[آ-ی]', t))
+        has_verb_mid = bool(_re.search(
+            r'(می‌|میشه|میکنه|داره|هست|است|کرد|شد|گفت|دید|رفت|خواست)', t
+        ))
+        if not (has_persian and has_verb_mid and len(t) > 25):
+            return False
     # No prompt garbage
-    if any(bad in t[:30] for bad in ('قوانین', 'راهنما', 'نمونه خروجی', 'خروجی:', 'ساختار:')):
+    if any(bad in t[:40] for bad in ('قوانین', 'راهنما', 'نمونه خروجی', 'خروجی:', 'ساختار:', 'دستورالعمل')):
         return False
     # Too salesy / list spam
-    spam_markers = ['۱)', '۲)', '۳)', '۴)', '📌', 'برای سفارش', 'برای خرید', 'لطفاً به صورت دقیق']
+    spam_markers = ['۱)', '۲)', '۳)', '۴)', '📌', 'برای سفارش', 'لطفاً به صورت دقیق']
     if sum(1 for m in spam_markers if m in t) >= 2:
         return False
     # Garbled nonsense (heuristic)
     if 'بازیکن' in t or 'فولوور شما' in t.lower():
+        return False
+    # Reject pure AI preamble
+    bad_starts = ('البته!', 'بله!', 'حتماً!', 'قطعاً!', 'Sure!', 'Of course!')
+    if any(t.startswith(b) for b in bad_starts):
         return False
     return True
 
@@ -410,8 +428,8 @@ QWEN3_BASE_URL = os.environ.get('QWEN3_BASE_URL', 'http://qwen3.railway.internal
 QWEN3_MODEL = os.environ.get('QWEN3_MODEL', 'qwen3:1.7b')
 
 # محدودیت: حداکثر 1 پاسخ AI در هر گروه در این بازه زمانی (ثانیه)
-GROUP_AI_COOLDOWN_SECONDS = 3600  # 1 ساعت بین هر پاسخ در هر گروه
-GROUP_AI_TIMEOUT_SECONDS = 25     # حداکثر زمان انتظار برای پاسخ Qwen3
+GROUP_AI_COOLDOWN_SECONDS = 300   # 5 دقیقه بین هر پاسخ در هر گروه (1 ساعت خیلی زیاد بود)
+GROUP_AI_TIMEOUT_SECONDS = 40     # حداکثر زمان انتظار برای پاسخ Qwen3
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚠️⚠️⚠️ سوییچ‌های عملیات پرریسک (HIGH-RISK OPERATIONS SWITCHES) ⚠️⚠️⚠️
@@ -12661,24 +12679,31 @@ _DRUG_KNOWLEDGE_FA = (
 # Richer knowledge (inline from site_knowledge.py + drug_families.py + composer patterns)
 KNOWLEDGE_SNIPPETS = [
     ("payment", "پرداخت فقط با ارز دیجیتال: BTC، ETH، USDT (TRC20 پیشنهادی - کمترین کارمزد)، TRX، BNB، TON، SOL، DOGE. صرافی‌های خوب: نوبیتکس، والکس، تترلند. تأیید معمولاً ۵-۱۵ دقیقه."),
-    ("shipping", "ارسال سریع به تهران 🇮🇷، استانبول 🇹🇷، دبی 🇦🇪، بغداد 🇮🇶، تورنتو 🇨🇦 اغلب زیر ۴-۸ ساعت پس از تأیید پرداخت. بسته‌بندی کاملاً محرمانه، بدون نام دارو روی جعبه."),
-    ("ritalin", "متیل‌فنیدات (ریتالین، کونسرتا، ساندوز، وایاس، پرکتیسا) برای ADHD و نارکولپسی. اطلاعات عمومی — دوز و تجویز فقط توسط پزشک."),
-    ("semaglutide", "سماگلوتاید (اوزمپیک، ویگوی) برای دیابت نوع ۲ و کمک به کاهش وزن (همراه رژیم و ورزش)."),
+    ("shipping", "ارسال سریع به تهران، استانبول، دبی، بغداد، تورنتو اغلب زیر ۴-۸ ساعت پس از تأیید پرداخت. بسته‌بندی کاملاً محرمانه."),
+    ("ritalin", "متیل‌فنیدات (ریتالین، کونسرتا، ساندوز، وایاس، پرکتیسا) برای ADHD و نارکولپسی. اطلاعات عمومی — دوز فقط توسط پزشک."),
+    ("semaglutide", "سماگلوتاید (اوزمپیک، ویگوی) برای دیابت نوع ۲ و کاهش وزن (همراه رژیم و ورزش)."),
     ("tirzepatide", "تیرزپاتید (مونجارو) مشابه سماگلوتاید برای کنترل دیابت و مدیریت وزن."),
-    ("order", "مراحل: جستجو/انتخاب در medpharmaweb.com → سبد خرید → checkout → آدرس + ارز دیجیتال → واریز دقیق → تأیید ۵-۱۵ دقیقه → ارسال."),
+    ("order", "مراحل خرید: جستجو در medpharmaweb.com → سبد خرید → checkout → آدرس + ارز دیجیتال → واریز → تأیید ۵-۱۵ دقیقه → ارسال."),
     ("authenticity", "تمام محصولات اورجینال اروپایی/آمریکایی با ضمانت، هولوگرام و کد batch. بسته‌بندی محرمانه."),
-    ("support", "پشتیبانی ۲۴ ساعته در چت سایت یا @PharmaWebAd. گروه اصلی: @PharmaWebGp."),
+    ("support", "پشتیبانی ۲۴ ساعته: چت سایت یا @PharmaWebAd. گروه اصلی: @PharmaWebGp."),
     ("crypto_network", "USDT روی TRC20 کارمزد پایین و تأیید سریع دارد. همیشه آدرس و شبکه را دقیق چک کنید."),
-    ("general", "اطلاعات عمومی در مورد داروها و مکمل‌های اورجینال. هیچ توصیه پزشکی یا دوز شخصی داده نمی‌شود."),
+    ("general", "اطلاعات عمومی درباره داروها و مکمل‌های اورجینال. هیچ توصیه پزشکی یا دوز شخصی داده نمی‌شود."),
+    ("modafinil", "مودافینیل (مودالرت) برای بیداری و تمرکز استفاده میشه. تجویز پزشک لازمه."),
+    ("insulin", "انسولین‌های مختلف (لانتوس، نواراپید و غیره) باید سرد نگه داشته بشن. دوز فقط پزشک تعیین می‌کنه."),
+    ("tramadol", "ترامادول یک مسکن قوی با کنترل دسترسی محدوده. اطلاعات عمومی فقط."),
+    ("migration_turkey", "مهاجرت به ترکیه: ایکامت تورستیک و کوتاه‌مدت رایج‌ترند. هزینه‌ها این روزا بالا رفته. استانبول گرون‌تر از آنکارا یا ازمیره."),
+    ("migration_general", "برای مهاجرت: هر کشور شرایط خودشو داره. کانادا اکسپرس اینتری، آلمان فرصت شغلی، دبی ویزای سرمایه‌گذاری معروفه."),
+    ("crypto_general", "بازار کریپتو نوسان زیادی داره. USDT و USDC استیبل‌کوین هستن و برای تراکنش‌های داخلی پیشنهاد میشن."),
 ]
 
 # Drug aliases for better retrieval (from drug_families.py)
 DRUG_ALIASES = {
-    'ritalin': ['ریتالین', 'متیل‌فنیدات', 'متیل فنیدات', 'کونسرتا', 'کنسرتا', 'ساندوز', 'وایاس', 'پرکتیسا', 'پرکتیزا'],
-    'semaglutide': ['اوزمپیک', 'سماگلوتاید', 'ویگوی', 'wegovy'],
-    'tirzepatide': ['مونجارو', 'مونجارو', 'تیرزپاتید'],
-    'modafinil': ['مودافینیل', 'مودالرت'],
-    'insulin': ['انسولین', 'لانتوس'],
+    'ritalin': ['ریتالین', 'متیل‌فنیدات', 'متیل فنیدات', 'کونسرتا', 'کنسرتا', 'ساندوز', 'وایاس', 'پرکتیسا', 'پرکتیزا', 'ritalin', 'concerta'],
+    'semaglutide': ['اوزمپیک', 'سماگلوتاید', 'ویگوی', 'wegovy', 'ozempic', 'semaglutide'],
+    'tirzepatide': ['مونجارو', 'تیرزپاتید', 'mounjaro', 'tirzepatide'],
+    'modafinil': ['مودافینیل', 'مودالرت', 'modafinil', 'modalert'],
+    'insulin': ['انسولین', 'لانتوس', 'نواراپید', 'بازال', 'insulin', 'lantus'],
+    'tramadol': ['ترامادول', 'tramadol'],
 }
 
 def _expand_drug_query(q: str) -> str:
@@ -12748,12 +12773,12 @@ class ProfessionalGroupResponder:
             "stream": False,
             "think": False,
             "options": {
-                "temperature": 0.36,
-                "num_predict": 165,
+                "temperature": 0.40,
+                "num_predict": 260,
                 "num_ctx": 4096,
-                "top_p": 0.86,
-                "repeat_penalty": 1.14,
-                "top_k": 40,
+                "top_p": 0.88,
+                "repeat_penalty": 1.10,
+                "top_k": 45,
             },
         }
         raw = ""
@@ -12770,14 +12795,17 @@ class ProfessionalGroupResponder:
                 await asyncio.sleep(0.5)
         cleaned = _clean_natural(raw)
 
-        # Self-critique (LLM-as-judge, cheap pass) — port spirit of model_guard + response quality
+        # Self-critique: only polish if the response looks like it needs it
         critique_text = cleaned
         critique_note = "none"
-        if cleaned and len(cleaned) > 12:
+        # Only run critique if response is borderline (has list markers or is too formal)
+        needs_polish = cleaned and len(cleaned) > 15 and any(
+            marker in cleaned for marker in ['۱.', '۱)', '•', '- ', '**', 'البته', 'بله،', 'حتماً']
+        )
+        if needs_polish:
             crit_prompt = (
-                "این پاسخ گروه تلگرامی فارسی را برای طبیعی بودن (انسان واقعی)، عدم اسپم، "
-                "مرتبط بودن با زمینه، کامل بودن جملات و عدم تکرار نقد کن. "
-                "اگر امتیاز کمتر از ۸ است فقط نسخه بهبودیافته را بنویس (بدون توضیح اضافه):\n" + cleaned
+                "این پاسخ را طبیعی‌تر کن. مثل یک عضو عادی گروه تلگرامی بنویس. "
+                "فقط متن نهایی بنویس بدون هیچ توضیح:\n" + cleaned
             )
             try:
                 c_payload = {
@@ -12785,9 +12813,9 @@ class ProfessionalGroupResponder:
                     "messages": [{"role": "user", "content": crit_prompt}],
                     "stream": False,
                     "think": False,
-                    "options": {"temperature": 0.18, "num_predict": 110, "repeat_penalty": 1.1},
+                    "options": {"temperature": 0.35, "num_predict": 200, "repeat_penalty": 1.05},
                 }
-                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=11)) as sess:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as sess:
                     async with sess.post(f"{self.qwen_base}/api/chat", json=c_payload) as cr:
                         if cr.status == 200:
                             cd = await cr.json(content_type=None)
@@ -12795,7 +12823,7 @@ class ProfessionalGroupResponder:
                             c_clean = _clean_natural(c_raw)
                             if c_clean and len(c_clean) > 8 and not is_repeated_response(c_clean, hist):
                                 critique_text = c_clean
-                                critique_note = "improved"
+                                critique_note = "polished"
             except Exception:
                 pass
 
@@ -12815,19 +12843,58 @@ class ProfessionalGroupResponder:
 responder = None
 
 def retrieve_knowledge(query: str, intent: str = "") -> str:
-    """Improved retriever (keyword + drug alias + direct name matching)."""
+    """Improved retriever (keyword + drug alias + intent + topic matching)."""
     q = _expand_drug_query((query or "") + " " + (intent or "")).lower()
     hits = []
+
+    # Topic keyword mapping for broader coverage
+    _TOPIC_KEYWORDS = {
+        "payment": ["پرداخت", "ارز", "کریپتو", "usdt", "trc20", "ترون", "نوبیتکس", "والکس", "btc", "eth"],
+        "shipping": ["ارسال", "تحویل", "استانبول", "دبی", "تهران", "بغداد", "تورنتو", "زمان", "طول میکشه"],
+        "order": ["سفارش", "خرید", "checkout", "مراحل", "چطور", "چگونه", "ثبت", "سبد"],
+        "authenticity": ["اورجینال", "اصل", "تقلبی", "هولوگرام", "معتبر", "ضمانت"],
+        "support": ["پشتیبانی", "کمک", "سوال", "پاسخ", "تماس"],
+        "crypto_network": ["شبکه", "trc20", "erc20", "network", "کارمزد", "آدرس", "تتر"],
+        "ritalin": ["ریتالین", "متیل", "کونسرتا", "ساندوز", "adhd", "بیش‌فعالی", "بیش فعالی", "تمرکز"],
+        "semaglutide": ["اوزمپیک", "سماگلوتاید", "ویگوی", "دیابت", "کاهش وزن", "ozempic"],
+        "tirzepatide": ["مونجارو", "تیرزپاتید", "mounjaro"],
+        "modafinil": ["مودافینیل", "مودالرت", "بیداری", "تمرکز"],
+        "insulin": ["انسولین", "لانتوس", "نواراپید", "دیابت"],
+        "tramadol": ["ترامادول", "مسکن"],
+        "migration_turkey": ["ترکیه", "استانبول", "آنکارا", "ازمیر", "ایکامت", "مهاجرت", "ترک"],
+        "migration_general": ["مهاجرت", "ویزا", "اقامت", "کانادا", "آلمان", "دبی", "اروپا", "خارج"],
+        "crypto_general": ["کریپتو", "بیتکوین", "اتریوم", "استیبل", "ارز دیجیتال"],
+    }
+
     for key, text in KNOWLEDGE_SNIPPETS:
         k = key.lower()
-        if k in q or any(w in q for w in k.split()) or any(a in q for a in ["ritalin","اوزمپیک","مونجارو","سماگلوتاید","متیل"]):
-            hits.append((3.5 if "ritalin" in k or "semaglutide" in k else 2.5, text))
+        keywords = _TOPIC_KEYWORDS.get(k, [k])
+        score = 0.0
+        for kw in keywords:
+            if kw.lower() in q:
+                score = max(score, 4.0 if k in ("ritalin", "semaglutide", "payment", "shipping") else 3.0)
+        if score > 0:
+            hits.append((score, text))
+
     # direct drug alias boost
     for fam, aliases in DRUG_ALIASES.items():
         if any(a.lower() in q for a in aliases):
             for key, text in KNOWLEDGE_SNIPPETS:
                 if fam in key.lower() or any(a.lower() in text.lower() for a in aliases):
                     hits.append((5.0, text))
+
+    # intent-based boost
+    intent_key_map = {
+        'payment_crypto_help': 'payment', 'crypto_info': 'crypto_network',
+        'shipping_time': 'shipping', 'faq_order_process': 'order',
+        'trust_question': 'authenticity', 'help_request': 'support',
+    }
+    if intent in intent_key_map:
+        mapped = intent_key_map[intent]
+        for key, text in KNOWLEDGE_SNIPPETS:
+            if key == mapped:
+                hits.append((3.5, text))
+
     if not hits:
         return ""
     hits.sort(key=lambda x: -x[0])
@@ -12840,38 +12907,35 @@ def retrieve_knowledge(query: str, intent: str = "") -> str:
     return "\n".join(out)
 
 NATURAL_GROUP_SYSTEM_PROMPT = (
-    "تو یک عضو واقعی، باهوش و کنجکاو در گروه‌های تلگرامی فارسی‌زبان هستی (سلامت، داروهای اورجینال، مهاجرت، زندگی خارج).\n"
-    "لحن: طبیعی، گرم، مثل یک آدم معمولی با اطلاعات خوب — نه ربات، نه فروشنده، نه پشتیبان رسمی.\n\n"
-    "قوانین زبانی سخت (از telegram_ai_content الگو بگیر):\n"
-    "- ۲ تا ۴ جمله کوتاه کامل با فعل. فارسی روان + نیم‌فاصله (می‌شود نه میشود).\n"
-    "- زمینه اخیر چت را دقیق بخوان و ادامه حرف بده یا مرتبط پاسخ بده.\n"
-    "- استراتژی تصمیم: {strategy}. thinking داخلی: {thinking}. سبک انتخابی: {style}.\n"
-    "- هرگز لیست، بولت، ایموجی زیاد، «برای سفارش» یا «بازیکن انتخاب کنید» ننویس.\n"
-    "- فقط وقتی کاربر مستقیم خرید/سایت/پرداخت پرسید، خیلی آروم و طبیعی اشاره به medpharmaweb.com یا @PharmaWebAd کن.\n"
-    "- اگر مطمئن نیستی: «نمیدونم دقیق» بگو و پیشنهاد بده از پشتیبانی گروه بپرسند.\n"
-    "- تشخیص، دوز یا تجویز پزشکی اکیداً ممنوع — فقط اطلاعات عمومی.\n\n"
-    "دانش پایه سایت و دارو:\n" + _SITE_KNOWLEDGE_FA + "\n" + _DRUG_KNOWLEDGE_FA + "\n\n"
-    "دانش مرتبط بازیابی‌شده (استفاده هوشمند):\n{retrieved}\n\n"
-    "Recent chat context (آخرین پیام‌های واقعی گروه — از این استفاده کن):\n{context}\n\n"
-    "پیام فعلی کاربر: {user_msg}\n\n"
-    "مثال‌های پاسخ خوب (few-shot حرفه‌ای — تنوع و طبیعی بودن):\n"
-    "کاربر: ارسال به استانبول چقدر طول میکشه؟\n"
-    "تو: معمولاً بعد از تأیید واریز، ارسال به استانبول زیر ۸ ساعت انجام میشه. بسته‌بندی کاملاً محرمانه است.\n\n"
-    "کاربر: برای بیش‌فعالی چی پیشنهاد می‌کنی؟\n"
-    "تو: متیل‌فنیدات (ریتالین، کونسرتا و مشابه‌ها) معمولاً برای ADHD استفاده میشه. این اطلاعات عمومیه، حتماً پزشک تعیین کنه.\n\n"
-    "کاربر: پرداخت با کدوم ارز بهتره؟\n"
-    "تو: USDT روی TRC20 کارمزد پایینه و تأییدش سریعتره. خیلی‌ها نوبیتکس یا والکس رو پیشنهاد میکنن.\n\n"
-    "کاربر: ریتالین ساندوز خوبه؟\n"
-    "تو: ساندوز یکی از برندهای معتبر متیل‌فنیداته. کیفیتش معمولاً خوبه ولی بازم نظر پزشک مهمه.\n\n"
-    "کاربر: این جواب پرت بود!\n"
-    "تو: ببخشید، شاید دقیق متوجه نشدم. میتونی بیشتر توضیح بدی تا بهتر کمک کنم؟\n\n"
-    "کاربر: قبلاً پرسیدم در مورد ارسال\n"
-    "تو: آره یادم اومد، برای استانبول زیر ۸ ساعت بعد تأیید واریز میرسه. سؤال دیگه‌ای هم بود؟\n\n"
-    "کاربر: چطور سفارش بدم؟\n"
-    "تو: توی سایت جستجو کن، به سبد اضافه کن، بعد تو checkout آدرس و ارز رو انتخاب کن و واریز کن. تأیید که شد ارسال میشه.\n\n"
-    "کاربر: نمیدونم کدوم شبکه تتر استفاده کنم\n"
-    "تو: TRC20 پیشنهاد میشه چون کارمزد خیلی پایینه و تأیید سریع داره. حتماً آدرس رو دقیق کپی کن.\n\n"
-    "پاسخ طبیعی، کوتاه و مرتبط تو (کامل، بدون مقدمه و artifact):"
+    "تو یک عضو واقعی و باسواد یک گروه تلگرامی فارسی هستی (موضوع: سلامت، دارو، مهاجرت، زندگی خارج).\n"
+    "لحن تو: صمیمی، طبیعی، کوتاه — مثل یک دوست که اطلاعات خوب داره. نه ربات، نه فروشنده.\n\n"
+    "قوانین مهم:\n"
+    "۱. ۱ تا ۳ جمله کوتاه و کامل فارسی. هرگز لیست و بولت‌پوینت نزن.\n"
+    "۲. مستقیم به حرف کاربر جواب بده — از context گروه استفاده کن.\n"
+    "۳. اگر دارو/خرید/پرداخت پرسیده شد: خیلی آروم اشاره به @PharmaWebAd یا medpharmaweb.com کن.\n"
+    "۴. هیچ‌وقت تشخیص پزشکی یا دوز توصیه نکن — فقط اطلاعات عمومی.\n"
+    "۵. استراتژی: {strategy} | سبک: {style}\n\n"
+    "اطلاعات مفید:\n{retrieved}\n\n"
+    "آخرین پیام‌های گروه:\n{context}\n\n"
+    "پیام کاربر: {user_msg}\n\n"
+    "نمونه پاسخ‌های خوب:\n"
+    "Q: ارسال به استانبول چقدر طول میکشه؟\n"
+    "A: معمولاً زیر ۸ ساعت بعد از تأیید پرداخت. بسته‌بندی هم کاملاً محرمانه‌ست.\n\n"
+    "Q: برای ADHD چی بخورم؟\n"
+    "A: معمولاً متیل‌فنیدات (ریتالین، کونسرتا) تجویز میشه ولی دوز رو حتماً پزشک باید تعیین کنه.\n\n"
+    "Q: کدوم شبکه تتر بهتره؟\n"
+    "A: TRC20 کارمزد خیلی کمه و تأییدش سریعه. نوبیتکس یا والکس هم خوبن.\n\n"
+    "Q: اوزمپیک موجوده؟\n"
+    "A: برای موجودی دقیق باید از @PharmaWebAd بپرسی ولی معمولاً هست.\n\n"
+    "Q: چطور سفارش بدم؟\n"
+    "A: توی سایت انتخاب کن، checkout، آدرس و ارز انتخاب کن، واریز کن. تأیید که شد ارسال میشه.\n\n"
+    "Q: جواب قبلیت پرت بود\n"
+    "A: ببخشید! بیشتر توضیح بده تا بهتر کمک کنم.\n\n"
+    "Q: تجربه‌ای از مهاجرت به ترکیه دارید؟\n"
+    "A: خیلی‌ها با روش تورست یا ایکامت رفتن. هزینه‌ها این روزا بالا رفته ولی هنوز گزینه‌ی محبوبیه.\n\n"
+    "Q: وضعیت دلار چطوره این روزا؟\n"
+    "A: نوسان داره ولی تو این گروه بیشتر بهتون میخوره که با ارز دیجیتال کار کنید — ثابت‌تره.\n\n"
+    "پاسخ کوتاه، مرتبط و طبیعی تو (فقط متن جواب، بدون توضیح اضافه):"
 )
 
 # Minimal clean fast-paths (natural prose only)
@@ -12885,7 +12949,11 @@ _AI_TRIGGER_COMPILED = re.compile(
     r'سوال|چطور|چگونه|[?؟]|آیا\s|میشه|میشود|چیه|چیست|هست؟|داره؟|'
     r'دارو|داروی|قرص|ریتالین|اوزمپیک|مونجارو|مودافینیل|ترامادول|'
     r'خرید|سفارش|ارسال|پرداخت|کریپتو|usdt|ترون|اصل|اورجینال|'
-    r'پیگیری|وضعیت|عوارض|دوز|ADHD|دیابت|کاهش وزن',
+    r'پیگیری|وضعیت|عوارض|دوز|ADHD|دیابت|کاهش وزن|'
+    r'مهاجرت|ویزا|اقامت|ترکیه|استانبول|دبی|کانادا|آلمان|اروپا|'
+    r'تجربه|کسی|بلد|میدونه|میدونین|نظر|پیشنهاد|راهنمایی|کمک|'
+    r'انسولین|لانتوس|سماگلوتاید|متیل|کونسرتا|ساندوز|'
+    r'بهتره|بدتره|ارزونتره|گرونه|چند|قیمت|موجود|هست|دارین',
     re.IGNORECASE
 )
 
@@ -13153,12 +13221,12 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
         "stream": False,
         "think": False,
         "options": {
-            "temperature": 0.37,
-            "num_predict": 175,
+            "temperature": 0.40,
+            "num_predict": 260,
             "num_ctx": 4096,
-            "top_p": 0.87,
-            "top_k": 40,
-            "repeat_penalty": 1.13,
+            "top_p": 0.88,
+            "top_k": 45,
+            "repeat_penalty": 1.10,
             "num_thread": 4,
         },
     }
@@ -13332,7 +13400,15 @@ async def group_observer_task():
                     await asyncio.sleep(random.uniform(60, 160))
 
                     ctx_list = list(group_chat_memory[gid])[-4:] + [recent]
-                    probe = "این موضوع برام جالب بود، نظر بقیه چیه؟"
+                    # Use a contextual probe derived from actual recent conversation
+                    recent_lines = [l for l in recent.split('\n') if len(l.strip()) > 15]
+                    if recent_lines:
+                        # Pick the most substantive recent message as probe context
+                        probe = recent_lines[-1].split(':', 1)[-1].strip()[:200]
+                        if len(probe) < 15:
+                            probe = recent_lines[0].split(':', 1)[-1].strip()[:200]
+                    else:
+                        probe = recent[:180] if recent else "سلام دوستان"
                     resp = await call_qwen3_natural(ctx_list, probe, chat_id=gid)
                     if resp and is_high_quality_natural(resp) and len(resp) > 22 and not _is_repetitive(gid, resp):
                         await simulate_read_and_type(client, gid)
