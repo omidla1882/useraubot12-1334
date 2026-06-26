@@ -13839,16 +13839,30 @@ async def main():
     global responder
     responder = ProfessionalGroupResponder(client, QWEN3_BASE_URL, QWEN3_MODEL, GROUP_AI_TIMEOUT_SECONDS)
     
-    # شروع کلاینت تلگرام
-    try:
-        print("🔌 Connecting Telethon client...", flush=True)
-        await client.start()
-        print("✅ Telethon client started successfully", flush=True)
-    except Exception as e:
-        print(f"❌ FATAL: Telethon client failed to start: {e}", flush=True)
-        # Keep the web server running so Railway doesn't think it's dead immediately
-        await asyncio.sleep(3600)
-        return
+    # شروع کلاینت تلگرام — با retry برای session conflict در Railway
+    started = False
+    for _attempt in range(4):
+        try:
+            print(f"🔌 Connecting Telethon client (attempt {_attempt+1})...", flush=True)
+            await client.start()
+            print("✅ Telethon client started successfully", flush=True)
+            started = True
+            break
+        except Exception as e:
+            err_str = str(e)
+            print(f"❌ Telethon start error (attempt {_attempt+1}): {err_str[:200]}", flush=True)
+            # AuthKeyDuplicated = old Railway container still alive; wait and retry
+            if 'two different IP' in err_str or 'AuthKeyDuplicated' in err_str or 'authorization key' in err_str.lower():
+                wait = 45 * (_attempt + 1)
+                print(f"⏳ Session conflict — waiting {wait}s for old container to die...", flush=True)
+                await asyncio.sleep(wait)
+            else:
+                # Unknown error — short wait then retry
+                await asyncio.sleep(15)
+    if not started:
+        print("❌ FATAL: Could not start Telethon after 4 attempts — exiting for Railway restart", flush=True)
+        await asyncio.sleep(30)  # Let healthcheck serve one last response before exit
+        sys.exit(1)  # Railway will restart the container automatically
     
     # ═══════════════════════════════════════════════════════════
     # 🚀 پیام استارت (تنها لاگ در نسخه Silent)
