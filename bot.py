@@ -9355,15 +9355,25 @@ CONSECUTIVE_FAILS_THRESHOLD = 3  # کاهش به 3 خطا
 HEALTH_CHECK_INTERVAL = 600  # بررسی سلامت هر 10 دقیقه
 
 # ایجاد کلاینت با تنظیمات بهینه
+# StringSession از env var اگر موجود باشد (Railway — بدون نیاز به فایل session)
+_session_string = os.environ.get('TELETHON_SESSION_STRING', '').strip()
+if _session_string:
+    from telethon.sessions import StringSession as _StringSession
+    _session = _StringSession(_session_string)
+    print("✅ Using StringSession from TELETHON_SESSION_STRING env var", flush=True)
+else:
+    _session = session_name
+    print("⚠️  No TELETHON_SESSION_STRING — using file session (may break on Railway redeploy)", flush=True)
+
 client = TelegramClient(
-    session_name, 
-    api_id, 
+    _session,
+    api_id,
     api_hash,
-    connection_retries=5,  # تلاش مجدد خودکار
-    retry_delay=3,  # تاخیر بین تلاش‌ها
-    timeout=30,  # timeout برای درخواست‌ها
-    request_retries=3,  # تعداد retry برای هر درخواست
-    flood_sleep_threshold=60  # صبر خودکار برای FloodWait کمتر از 60 ثانیه
+    connection_retries=5,
+    retry_delay=3,
+    timeout=30,
+    request_retries=3,
+    flood_sleep_threshold=60
 )
 
 # دیکشنری‌ها
