@@ -708,41 +708,43 @@ def get_few_shots_for_prompt(query: str, k: int = 2) -> str:
 
 def generate_natural_reply_local(user_text: str, intent: str = "", retrieved: str = "", style: str = "general_engage") -> str:
     """Strong local natural reply generator using composer + few-shots + peer voice.
-    This is fast, always grounded, and produces human-like output without waiting for slow LLM.
-    Used as primary for group replies + safety net.
+    Fast, grounded, human-like 1-3 sentences. Primary path for group messages.
     """
-    base = compose_knowledge_for_prompt(user_text, intent) or retrieved or ""
+    base = (compose_knowledge_for_prompt(user_text, intent) or retrieved or "").strip()
     few = get_few_shots_for_prompt(user_text, k=1)
 
-    # Build a short natural peer response
-    parts = []
+    # Extract the best grounded piece
+    line = ""
     if base:
-        # pick first useful line and make it conversational
-        line = base.split("\n")[0].strip()
+        for candidate in base.split("\n"):
+            c = candidate.strip()
+            if 15 < len(c) < 140:
+                line = c
+                break
         if line:
-            line = line.replace("اطلاعات عمومی", "").strip()
-            if "من خودم" not in line and random.random() < 0.7:
-                line = line + " من خودم گرفتم موجود بود."
-            parts.append(line)
+            line = re.sub(r"\(اطلاعات عمومی\)", "", line)
+            if "من خودم" not in line and random.random() < 0.65:
+                line += " من خودم گرفتم موجود بود."
 
-    if few and random.random() < 0.4:
-        # inject one example tone
-        ex = few.split("\n")[-1] if "\n" in few else few
-        parts.append(ex[:120])
+    # Optional light few-shot flavor (never paste full example)
+    if few and random.random() < 0.35:
+        # take only a short natural phrase from the example
+        match = re.search(r"جواب طبیعی: ([^.]+\.)", few)
+        if match:
+            extra = match.group(1).strip()
+            if len(extra) > 10 and len(extra) < 80:
+                line = line + " " + extra if line else extra
 
-    if not parts:
-        parts.append("آره، تجربه منم شبیه همین بود. دقیق‌تر بگو ببینم چی مدنظرت هست؟")
+    if not line:
+        line = "آره تجربه منم شبیه همین بود. دقیق بگو ببینم چی لازم داری."
 
-    reply = " ".join(parts)
-    reply = re.sub(r"\s+", " ", reply).strip()
+    # Final polish
+    line = re.sub(r"\s+", " ", line).strip()
+    line = re.sub(r"البته|حتما|قطعا|۱۰۰٪|لیست", "", line)
+    if len(line) > 155:
+        line = line[:152] + "..."
 
-    # Keep it short and natural (1-3 sentences)
-    if len(reply) > 160:
-        reply = reply[:157] + "..."
-
-    # Anti robotic
-    reply = re.sub(r"البته|حتما|قطعا|۱۰۰٪", "", reply)
-    return reply[:180]
+    return line
 
 def decide_engagement(user_text: str, recent_ctx: str = "", group_notes: str = "") -> dict:
     """Return decision for smart random engagement + style. Stronger for natural PM funnel + intelligent interactions."""
