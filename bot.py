@@ -13608,7 +13608,7 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
     if cnt_obj:
         insert_p = cnt_obj.should_insert(intent, user_text, len(exchange_lines))
     else:
-        insert_p = 0.22 if high_value or bool(retrieved) else 0.12
+        insert_p = 0.18 if high_value or bool(retrieved) else 0.08  # lowered to reduce empty/gate fail, more natural
     if random.random() < insert_p:
         snip = ""
         if cnt_obj:
