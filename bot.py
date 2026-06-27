@@ -280,24 +280,25 @@ def is_high_quality_natural(text: str) -> bool:
         'هستی', 'هستیم', 'ندارم', 'ندارید', 'دارین', 'میتونی', 'میتونم',
         'میدونن', 'باشه', 'باشد', 'نداری', 'میکنم', 'میشم', 'میکنیم',
         'بیشتره', 'بهتره', 'سریعتره', 'کمتره', 'راحتره', 'مهمه', 'درسته',
+        'میرسه', 'میاد', 'اومده', 'گفته', 'داده', 'نمیدونم', 'بپرس', 'ببین',
     )
     if not (any(t.endswith(c) for c in ends) or any(t.endswith(v) for v in verb_endings)):
-        # Allow if response is a complete-looking sentence with Persian content
+        # Allow if response is a complete-looking sentence with Persian content and a verb mid-sentence
         has_persian = bool(_re.search(r'[آ-ی]', t))
         has_verb_mid = bool(_re.search(
-            r'(می‌|میشه|میکنه|داره|هست|است|کرد|شد|گفت|دید|رفت|خواست)', t
+            r'(می‌|میشه|میکنه|داره|هست|است|کرد|شد|گفت|دید|رفت|خواست|میره|میاد)', t
         ))
         if not (has_persian and has_verb_mid and len(t) > 25):
             return False
-    # No prompt garbage
-    if any(bad in t[:40] for bad in ('قوانین', 'راهنما', 'نمونه خروجی', 'خروجی:', 'ساختار:', 'دستورالعمل')):
+    # No prompt garbage leaking into output
+    if any(bad in t[:40] for bad in ('قوانین', 'راهنما', 'نمونه خروجی', 'خروجی:', 'ساختار:', 'دستورالعمل', '۱. فارسی')):
         return False
     # Too salesy / list spam
     spam_markers = ['۱)', '۲)', '۳)', '۴)', '📌', 'برای سفارش', 'لطفاً به صورت دقیق']
     if sum(1 for m in spam_markers if m in t) >= 2:
         return False
-    # Garbled nonsense (heuristic)
-    if 'بازیکن' in t or 'فولوور شما' in t.lower():
+    # Garbled nonsense
+    if 'بازیکن' in t or 'فولوور شما' in t.lower() or 'AI assistant' in t:
         return False
     # Reject pure AI preamble
     bad_starts = ('البته!', 'بله!', 'حتماً!', 'قطعاً!', 'Sure!', 'Of course!')
@@ -428,8 +429,8 @@ QWEN3_BASE_URL = os.environ.get('QWEN3_BASE_URL', 'http://qwen3.railway.internal
 QWEN3_MODEL = os.environ.get('QWEN3_MODEL', 'qwen3:1.7b')
 
 # محدودیت: حداکثر 1 پاسخ AI در هر گروه در این بازه زمانی (ثانیه)
-GROUP_AI_COOLDOWN_SECONDS = 300   # 5 دقیقه بین هر پاسخ در هر گروه (1 ساعت خیلی زیاد بود)
-GROUP_AI_TIMEOUT_SECONDS = 40     # حداکثر زمان انتظار برای پاسخ Qwen3
+GROUP_AI_COOLDOWN_SECONDS = 120   # 2 دقیقه بین هر پاسخ در هر گروه
+GROUP_AI_TIMEOUT_SECONDS = 35     # حداکثر زمان انتظار برای پاسخ Qwen3
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚠️⚠️⚠️ سوییچ‌های عملیات پرریسک (HIGH-RISK OPERATIONS SWITCHES) ⚠️⚠️⚠️
@@ -512,7 +513,7 @@ ENABLE_AUTO_JOIN_FROM_LINKS = False  # 🔴 غیرفعال - لیست ۳۰۰+ گ
 # ═══════════════════════════════════════════════════════════
 # 🚨 SAFETY OVERRIDE - برای جلوگیری از بن مجدد (Crisis Mode)
 # ═══════════════════════════════════════════════════════════
-SAFE_MODE = True          # اگر True باشد، همه عملیات پرریسک غیرفعال می‌شوند
+SAFE_MODE = False         # False = حالت عادی | True = فقط AI گروه، بدون scrape/invite
 ACCOUNT_HEALTHY = True    # توسط مانیتور به‌روزرسانی می‌شود
 
 # تنظیمات بهینه‌سازی شده برای کاهش ریسک FloodWait ⚠️
@@ -9354,8 +9355,7 @@ FLOOD_WAIT_RESET_TIME = 900  # بازگشت به حالت عادی بعد از 1
 CONSECUTIVE_FAILS_THRESHOLD = 3  # کاهش به 3 خطا
 HEALTH_CHECK_INTERVAL = 600  # بررسی سلامت هر 10 دقیقه
 
-# ایجاد کلاینت با تنظیمات بهینه
-# StringSession از env var اگر موجود باشد (Railway — بدون نیاز به فایل session)
+# ایجاد کلاینت — StringSession از env var اگر موجود باشد (Railway)
 _session_string = os.environ.get('TELETHON_SESSION_STRING', '').strip()
 if _session_string:
     from telethon.sessions import StringSession as _StringSession
@@ -9369,8 +9369,8 @@ client = TelegramClient(
     _session,
     api_id,
     api_hash,
-    connection_retries=5,
-    retry_delay=3,
+    connection_retries=10,
+    retry_delay=5,
     timeout=30,
     request_retries=3,
     flood_sleep_threshold=60
@@ -12765,15 +12765,12 @@ class ProfessionalGroupResponder:
             ctx_str = (ctx_str + "\nیادداشت‌های گروه: " + notes) if ctx_str else "یادداشت‌های گروه: " + notes
 
         sys_p = NATURAL_GROUP_SYSTEM_PROMPT.format(
-            context=ctx_str or "(no recent)",
+            context=ctx_str or "(پیام‌های اخیر گروه در دسترس نیست)",
             user_msg=user_text,
-            style=style,
-            strategy=strategy,
-            thinking=thinking,
-            retrieved=retrieved or "(no specific retrieved)"
+            retrieved=retrieved or "(اطلاعات مرتبط یافت نشد)",
         )
 
-        # LLM call (params from llm_client.py best practice: low temp, good repeat)
+        # LLM call — temperature slightly higher for natural colloquial Persian
         payload = {
             "model": self.qwen_model,
             "messages": [
@@ -12783,11 +12780,11 @@ class ProfessionalGroupResponder:
             "stream": False,
             "think": False,
             "options": {
-                "temperature": 0.40,
-                "num_predict": 260,
+                "temperature": 0.42,
+                "num_predict": 220,
                 "num_ctx": 4096,
                 "top_p": 0.88,
-                "repeat_penalty": 1.10,
+                "repeat_penalty": 1.11,
                 "top_k": 45,
             },
         }
@@ -12917,53 +12914,63 @@ def retrieve_knowledge(query: str, intent: str = "") -> str:
     return "\n".join(out)
 
 NATURAL_GROUP_SYSTEM_PROMPT = (
-    "تو یک عضو واقعی و باسواد یک گروه تلگرامی فارسی هستی (موضوع: سلامت، دارو، مهاجرت، زندگی خارج).\n"
-    "لحن تو: صمیمی، طبیعی، کوتاه — مثل یک دوست که اطلاعات خوب داره. نه ربات، نه فروشنده.\n\n"
-    "قوانین مهم:\n"
-    "۱. ۱ تا ۳ جمله کوتاه و کامل فارسی. هرگز لیست و بولت‌پوینت نزن.\n"
-    "۲. مستقیم به حرف کاربر جواب بده — از context گروه استفاده کن.\n"
-    "۳. اگر دارو/خرید/پرداخت پرسیده شد: خیلی آروم اشاره به @PharmaWebAd یا medpharmaweb.com کن.\n"
-    "۴. هیچ‌وقت تشخیص پزشکی یا دوز توصیه نکن — فقط اطلاعات عمومی.\n"
-    "۵. استراتژی: {strategy} | سبک: {style}\n\n"
-    "اطلاعات مفید:\n{retrieved}\n\n"
-    "آخرین پیام‌های گروه:\n{context}\n\n"
+    "تو یک عضو واقعی و باهوش در یک گروه تلگرامی فارسی‌زبان هستی.\n"
+    "موضوع گروه: سلامت، داروهای اورجینال، مهاجرت، زندگی در خارج از کشور.\n"
+    "شخصیت تو: دانش خوبی داری، گرمی و صمیمی هستی، مثل یک دوست با تجربه جواب می‌دی.\n\n"
+    "قوانین سخت:\n"
+    "۱. فارسی محاوره‌ای: «میگم» نه «می‌گویم»، «میدونم» نه «می‌دانم»، «میشه» نه «می‌شود».\n"
+    "۲. ۲ تا ۳ جمله کوتاه — بیشتر ممنوع. هر جمله باید فعل کامل داشته باشه.\n"
+    "۳. هیچ لیست، بولت، سرتیتر، ایموجی زیاد یا فرمت رسمی ممنوع.\n"
+    "۴. هیچ مقدمه مثل «البته»، «حتماً»، «می‌توانم بگویم» ممنوع — مستقیم شروع کن.\n"
+    "۵. اگر سوال مستقیماً درباره خرید/سایت/پرداخت نیست، نام سایت یا آدرس نده.\n"
+    "۶. فقط وقتی مستقیم سوال خرید پرسیدن: «برای اطلاعات بیشتر می‌تونی به medpharmaweb.com سر بزنی» — یه بار، خیلی ساده.\n"
+    "۷. تشخیص، دوز، تجویز — اکیداً ممنوع. فقط اطلاعات عمومی.\n"
+    "۸. اگر مطمئن نیستی، صادقانه بگو: «دقیقاً نمیدونم، ولی...»\n"
+    "۹. پیام‌های گروه را دقیق بخوان و جواب مرتبط بده. از موضوع فرار نکن.\n\n"
+    "اطلاعات پایه (فقط وقتی مرتبطه استفاده کن):\n"
+    + _SITE_KNOWLEDGE_FA + "\n" + _DRUG_KNOWLEDGE_FA + "\n\n"
+    "اطلاعات بازیابی‌شده مرتبط با سوال:\n{retrieved}\n\n"
+    "آخرین پیام‌های گروه (متن واقعی — حتماً از این استفاده کن تا پاسخ مرتبط باشه):\n{context}\n\n"
     "پیام کاربر: {user_msg}\n\n"
-    "نمونه پاسخ‌های خوب:\n"
-    "Q: ارسال به استانبول چقدر طول میکشه؟\n"
-    "A: معمولاً زیر ۸ ساعت بعد از تأیید پرداخت. بسته‌بندی هم کاملاً محرمانه‌ست.\n\n"
-    "Q: برای ADHD چی بخورم؟\n"
-    "A: معمولاً متیل‌فنیدات (ریتالین، کونسرتا) تجویز میشه ولی دوز رو حتماً پزشک باید تعیین کنه.\n\n"
-    "Q: کدوم شبکه تتر بهتره؟\n"
-    "A: TRC20 کارمزد خیلی کمه و تأییدش سریعه. نوبیتکس یا والکس هم خوبن.\n\n"
-    "Q: اوزمپیک موجوده؟\n"
-    "A: برای موجودی دقیق باید از @PharmaWebAd بپرسی ولی معمولاً هست.\n\n"
-    "Q: چطور سفارش بدم؟\n"
-    "A: توی سایت انتخاب کن، checkout، آدرس و ارز انتخاب کن، واریز کن. تأیید که شد ارسال میشه.\n\n"
-    "Q: جواب قبلیت پرت بود\n"
-    "A: ببخشید! بیشتر توضیح بده تا بهتر کمک کنم.\n\n"
-    "Q: تجربه‌ای از مهاجرت به ترکیه دارید؟\n"
-    "A: خیلی‌ها با روش تورست یا ایکامت رفتن. هزینه‌ها این روزا بالا رفته ولی هنوز گزینه‌ی محبوبیه.\n\n"
-    "Q: وضعیت دلار چطوره این روزا؟\n"
-    "A: نوسان داره ولی تو این گروه بیشتر بهتون میخوره که با ارز دیجیتال کار کنید — ثابت‌تره.\n\n"
-    "پاسخ کوتاه، مرتبط و طبیعی تو (فقط متن جواب، بدون توضیح اضافه):"
+    "نمونه‌های پاسخ خوب:\n\n"
+    "کاربر: ریتالین اصل چطوره؟\n"
+    "پاسخ خوب: ریتالین اورجینال اروپایی کیفیتش خیلی بهتره از نسخه‌های محلی. ولی بازم پزشک باید تجویز کنه.\n\n"
+    "کاربر: ارسال به دبی چقدر وقت میبره؟\n"
+    "پاسخ خوب: معمولاً بعد از تأیید پرداخت زیر ۸ ساعت میرسه. بسته‌بندی هم کاملاً محرمانه‌ست.\n\n"
+    "کاربر: USDT رو از کجا بگیرم؟\n"
+    "پاسخ خوب: نوبیتکس و والکس معمولاً خوبن. TRC20 کارمزدش کمتره و تأییدش سریع‌تره.\n\n"
+    "کاربر: اوزمپیک برای کاهش وزن خوبه؟\n"
+    "پاسخ خوب: سماگلوتاید (اوزمپیک) برای کنترل اشتها استفاده میشه ولی حتماً باید با پزشک هماهنگ کنی چون عوارض داره.\n\n"
+    "کاربر: چطور سفارش بدم؟\n"
+    "پاسخ خوب: توی سایت دارو رو پیدا کن، به سبد اضافه کن، آدرس و ارز دیجیتال رو وارد کن و واریز کن. بعد تأیید ارسال میشه.\n\n"
+    "کاربر: ریتالین ساندوز با کونسرتا چه فرقی داره؟\n"
+    "پاسخ خوب: هر دو متیل‌فنیداتن ولی فرم رهش متفاوته. کونسرتا آهسته‌رهشه، ساندوز سریع‌الاثرتره. پزشک بهتر میتونه انتخاب کنه.\n\n"
+    "کاربر: مطمئنی اصله؟\n"
+    "پاسخ خوب: بله، محصولات اروپایی و آمریکایی با هولوگرام و کد batch هستن. می‌تونی batch رو آنلاین هم چک کنی.\n\n"
+    "کاربر: این جواب به سوالم نبود\n"
+    "پاسخ خوب: ببخشید، شاید درست متوجه نشدم. می‌تونی دوباره توضیح بدی چی میخوای بدونی؟\n\n"
+    "کاربر: برای بیش‌فعالی بزرگسال چی پیشنهاد میدی؟\n"
+    "پاسخ خوب: متیل‌فنیدات (ریتالین، کونسرتا) معمول‌ترین گزینه‌ست. ولی دوز و نوعش رو پزشک باید تعیین کنه چون شرایط هر کسی فرقه.\n\n"
+    "کاربر: مونجارو چیه؟\n"
+    "پاسخ خوب: تیرزپاتیده، شبیه اوزمپیک ولی روی دو هورمون تأثیر داره. برای دیابت و کاهش وزن استفاده میشه.\n\n"
+    "حالا پاسخ طبیعی و کوتاه بنویس — مستقیم شروع کن، بدون مقدمه:"
 )
 
-# Minimal clean fast-paths (natural prose only)
+# Fast fallback (فقط برای mention بدون AI response — نه برای bypass کردن LLM)
 _AI_FAST_RESPONSES: Dict[str, str] = {
-    'payment': "پرداخت با ارزهای دیجیتال از جمله USDT روی شبکه TRC20 راحت‌تره و کارمزد کمی داره. تأیید معمولاً ۵ تا ۱۵ دقیقه طول میکشه. صرافی‌هایی مثل نوبیتکس یا والکس رو پیشنهاد میکنن.",
-    'shipping': "ارسال به تهران، استانبول، دبی و چند شهر دیگه معمولاً خیلی سریع انجام میشه، اغلب زیر چند ساعت بعد از تأیید پرداخت.",
-    'support_redirect': "برای جزئیات بیشتر می‌تونی تو گروه @PharmaWebGp بپرسی یا به @PharmaWebAd پیام بدی.",
+    'support_redirect': "می‌تونی به @PharmaWebAd پیام بدی یا تو گروه @PharmaWebGp بپرسی.",
 }
 
 _AI_TRIGGER_COMPILED = re.compile(
-    r'سوال|چطور|چگونه|[?؟]|آیا\s|میشه|میشود|چیه|چیست|هست؟|داره؟|'
-    r'دارو|داروی|قرص|ریتالین|اوزمپیک|مونجارو|مودافینیل|ترامادول|'
-    r'خرید|سفارش|ارسال|پرداخت|کریپتو|usdt|ترون|اصل|اورجینال|'
-    r'پیگیری|وضعیت|عوارض|دوز|ADHD|دیابت|کاهش وزن|'
-    r'مهاجرت|ویزا|اقامت|ترکیه|استانبول|دبی|کانادا|آلمان|اروپا|'
-    r'تجربه|کسی|بلد|میدونه|میدونین|نظر|پیشنهاد|راهنمایی|کمک|'
-    r'انسولین|لانتوس|سماگلوتاید|متیل|کونسرتا|ساندوز|'
-    r'بهتره|بدتره|ارزونتره|گرونه|چند|قیمت|موجود|هست|دارین',
+    r'سوال|چطور|چگونه|[?؟]|آیا|میشه|میشود|چیه|چیست|هست؟|داره؟|کجا|چقدر|'
+    r'دارو|داروی|قرص|کپسول|مکمل|ویتامین|تزریق|آمپول|'
+    r'ریتالین|اوزمپیک|مونجارو|مودافینیل|ترامادول|انسولین|متفورمین|کونسرتا|لانتوس|سماگلوتاید|ساندوز|'
+    r'خرید|سفارش|ارسال|پرداخت|کریپتو|usdt|ترون|trc20|اصل|اورجینال|'
+    r'پیگیری|وضعیت|عوارض|دوز|ADHD|دیابت|کاهش وزن|فشار خون|'
+    r'مهاجرت|ویزا|اقامت|ترکیه|استانبول|دبی|کانادا|آلمان|اروپا|تهران|تورنتو|بغداد|'
+    r'قیمت|چنده|موجود|دارید|میخوام|میخوم|نمیدونم|کمک|راهنما|راهنمایی|'
+    r'اعتماد|مطمئن|معتبر|کیفیت|تجربه|کسی|بلد|میدونه|میدونین|نظر|پیشنهاد|'
+    r'بهتره|بدتره|ارزونتره|گرونه|چند|هست|دارین',
     re.IGNORECASE
 )
 
@@ -13213,12 +13220,9 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
     has_knowledge = bool(retrieved)
 
     sys_prompt = NATURAL_GROUP_SYSTEM_PROMPT.format(
-        context=context_str or "(چت اخیر در دسترس نبود)",
+        context=context_str or "(پیام‌های اخیر گروه در دسترس نیست)",
         user_msg=user_text,
-        style=style,
-        strategy=plan_strategy(intent_info, has_knowledge, len(recent_ctx) > 0),
-        thinking=f"intent={intent_info.get('intent','unknown')} | k={has_knowledge}",
-        retrieved=retrieved or "(دانش خاصی بازیابی نشد)"
+        retrieved=retrieved or "(اطلاعات مرتبط یافت نشد)",
     )
 
     url = f"{QWEN3_BASE_URL}/api/chat"
@@ -13231,12 +13235,12 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
         "stream": False,
         "think": False,
         "options": {
-            "temperature": 0.40,
-            "num_predict": 260,
+            "temperature": 0.42,
+            "num_predict": 200,
             "num_ctx": 4096,
             "top_p": 0.88,
             "top_k": 45,
-            "repeat_penalty": 1.10,
+            "repeat_penalty": 1.12,
             "num_thread": 4,
         },
     }
@@ -13312,33 +13316,23 @@ async def handle_group_ai(event):
         if not is_mentioned and (now - last) < GROUP_AI_COOLDOWN_SECONDS:
             return
 
-        # Update memory + exchange history
-        group_chat_memory[chat_id].append(text)
+        # Update exchange history (memory updated in context-building below)
         group_exchange_history[chat_id].append(("user", text))
+        if responder:
+            responder.add_turn(chat_id, 'user', text)
 
         # Human-like behavior before replying
         await simulate_read_and_type(client, event.chat)
 
-        # Fast clean natural prose (rare)
-        fast = _detect_fast_intent(text)
-        if fast and fast in _AI_FAST_RESPONSES and not is_mentioned:
-            reply = _AI_FAST_RESPONSES[fast]
-            if is_high_quality_natural(reply) and not _is_repetitive(chat_id, reply):
-                group_ai_last_response[chat_id] = now
-                await event.reply(reply)
-                _record_bot_output(chat_id, reply)
-                group_exchange_history[chat_id].append(("bot", reply))
-                log_ai_response(f"fast:{fast}", reply, reply)
-            return
-
         # Build rich context: recent messages + recent exchanges + group notes
-        memory_ctx = list(group_chat_memory[chat_id])[-5:]
+        group_chat_memory[chat_id].append(text)
+        memory_ctx = list(group_chat_memory[chat_id])[-6:]
         exchange_lines = []
-        for role, txt in list(group_exchange_history[chat_id])[-4:]:
-            exchange_lines.append(f"{role}: {txt[:180]}")
+        for role, txt in list(group_exchange_history[chat_id])[-6:]:
+            exchange_lines.append(f"{role}: {txt[:200]}")
         notes_str = get_group_notes(chat_id)
-        fresh_ctx = await fetch_recent_group_context(client, chat_id, limit=6)
-        ctx_for_llm = memory_ctx + [fresh_ctx] + exchange_lines + ([f"notes: {notes_str}"] if notes_str else [])
+        fresh_ctx = await fetch_recent_group_context(client, chat_id, limit=10)
+        ctx_for_llm = [fresh_ctx] + exchange_lines + ([f"یادداشت: {notes_str}"] if notes_str else [])
 
         # Phase 3: Use ProfessionalGroupResponder for generation (includes critique + anti-rep)
         if responder is None:
@@ -13409,16 +13403,28 @@ async def group_observer_task():
 
                     await asyncio.sleep(random.uniform(60, 160))
 
-                    ctx_list = list(group_chat_memory[gid])[-4:] + [recent]
-                    # Use a contextual probe derived from actual recent conversation
-                    recent_lines = [l for l in recent.split('\n') if len(l.strip()) > 15]
-                    if recent_lines:
-                        # Pick the most substantive recent message as probe context
-                        probe = recent_lines[-1].split(':', 1)[-1].strip()[:200]
-                        if len(probe) < 15:
-                            probe = recent_lines[0].split(':', 1)[-1].strip()[:200]
+                    ctx_list = [recent] + list(group_chat_memory[gid])[-3:]
+                    # Topic-aware probe: use keyword hints first, then extract from actual message
+                    _probe_options = [
+                        "کسی تجربه‌ای درباره این داره؟",
+                        "این موضوع رو من هم تجربه کردم، نظر بقیه چیه؟",
+                        "جالبه، من یه سوال دارم در این مورد.",
+                        "راستی در مورد این قضیه، یه نکته هست که مفیده.",
+                    ]
+                    if any(kw in recent.lower() for kw in ['ریتالین', 'اوزمپیک', 'مونجارو', 'انسولین', 'مودافینیل', 'کونسرتا']):
+                        probe = "کسی از این داروها استفاده کرده؟ تجربه‌تون چطور بوده؟"
+                    elif any(kw in recent.lower() for kw in ['ارسال', 'تحویل', 'استانبول', 'دبی', 'تهران']):
+                        probe = "ارسال به این شهرها معمولاً خیلی سریعه، تجربه داری؟"
+                    elif any(kw in recent.lower() for kw in ['پرداخت', 'usdt', 'کریپتو', 'تتر', 'trc20']):
+                        probe = "TRC20 بهترین شبکه‌ست برای پرداخت، کارمزدش خیلی کمه."
                     else:
-                        probe = recent[:180] if recent else "سلام دوستان"
+                        # Fall back to extracting from actual message content
+                        recent_lines = [l for l in recent.split('\n') if len(l.strip()) > 15]
+                        if recent_lines:
+                            extracted = recent_lines[-1].split(':', 1)[-1].strip()[:200]
+                            probe = extracted if len(extracted) >= 15 else random.choice(_probe_options)
+                        else:
+                            probe = random.choice(_probe_options)
                     resp = await call_qwen3_natural(ctx_list, probe, chat_id=gid)
                     if resp and is_high_quality_natural(resp) and len(resp) > 22 and not _is_repetitive(gid, resp):
                         await simulate_read_and_type(client, gid)
@@ -13850,28 +13856,26 @@ async def main():
     responder = ProfessionalGroupResponder(client, QWEN3_BASE_URL, QWEN3_MODEL, GROUP_AI_TIMEOUT_SECONDS)
     
     # شروع کلاینت تلگرام — با retry برای session conflict در Railway
-    started = False
-    for _attempt in range(4):
+    _start_delays = [30, 60, 90, 120, 180, 240]
+    _started = False
+    for _attempt, _wait in enumerate(_start_delays, start=1):
         try:
-            print(f"🔌 Connecting Telethon client (attempt {_attempt+1})...", flush=True)
+            print(f"🔌 Connecting Telethon client (attempt {_attempt})...", flush=True)
             await client.start()
             print("✅ Telethon client started successfully", flush=True)
-            started = True
+            _started = True
             break
-        except Exception as e:
-            err_str = str(e)
-            print(f"❌ Telethon start error (attempt {_attempt+1}): {err_str[:200]}", flush=True)
-            # AuthKeyDuplicated = old Railway container still alive; wait and retry
-            if 'two different IP' in err_str or 'AuthKeyDuplicated' in err_str or 'authorization key' in err_str.lower():
-                wait = 45 * (_attempt + 1)
-                print(f"⏳ Session conflict — waiting {wait}s for old container to die...", flush=True)
-                await asyncio.sleep(wait)
+        except Exception as _e:
+            _err = str(_e)
+            print(f"❌ Telethon start error (attempt {_attempt}): {_err[:200]}", flush=True)
+            if 'two different IP' in _err or 'AuthKeyDuplicated' in _err or 'authorization key' in _err.lower():
+                print(f"⏳ Session conflict — waiting {_wait}s for old container to die...", flush=True)
+                await asyncio.sleep(_wait)
             else:
-                # Unknown error — short wait then retry
                 await asyncio.sleep(15)
-    if not started:
-        print("❌ FATAL: Could not start Telethon after 4 attempts — exiting for Railway restart", flush=True)
-        await asyncio.sleep(30)  # Let healthcheck serve one last response before exit
+    if not _started:
+        print("❌ FATAL: Could not start Telethon after all attempts — exiting for Railway restart", flush=True)
+        await asyncio.sleep(30)
         sys.exit(1)  # Railway will restart the container automatically
     
     # ═══════════════════════════════════════════════════════════
