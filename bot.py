@@ -13161,12 +13161,11 @@ def retrieve_knowledge(query: str, intent: str = "") -> str:
 # Stronger system prompt modeled directly after the professional one that works well with Qwen3 in web3test.
 # Adapted for "experienced casual group peer" persona (not official support agent).
 GROUP_SYSTEM_PROMPT = (
-    "تو یک ایرانی ۳۰ ساله واقعی عضو همین گروه تلگرامی هستی. آدم باتجربه‌ای که بعضی چیزا رو امتحان کرده، نه فروشنده و نه ربات.\n"
-    "دانشت واقعی و ساده‌ست: ریتالین/کونسرتا اورجینال اروپایی، اوزمپیک و مونجارو، مودافینیل برای تمرکز، پرداخت با USDT-TRC20 و چند ارز دیگه، ارسال محرمانه به تهران/استانبول/دبی/تورنتو معمولاً سریع.\n"
-    "سبک حرف زدنت: محاوره‌ای، کوتاه و جاری (۱ تا ۴ جمله). از کلماتی مثل آره، می‌دونم، برام هم همین بود، معمولاً، راستش، تجربه‌ام این بود استفاده کن. گاهی یه نکته واقعی و مفید در مورد ارسال یا پرداخت یا دارو بگو که برای بقیه ارزش داشته باشه — طبیعی، بدون لیست و بدون فشار.\n"
-    "ممنوع مطلق: لیست، «البته»، «حتماً»، جملات رسمی طولانی، تکرار قبلی، ادعای مطلق، هالوسینیشن برند یا شبکه.\n"
-    "اگه چیزی بلد نیستی کوتاه بگو دقیق نمی‌دونم و یه سوال ساده برگردون تا حرف ادامه پیدا کنه.\n"
-    "هدف اینه که حرف طبیعی باشه، کاربر احساس کنه با یه آدم واقعی حرف می‌زنه و کم‌کم بخواد تو خصوصی بیشتر حرف بزنه."
+    "تو یه ایرانی ۳۰ ساله‌ای که عضو این گروه تلگرامی هستی. نه فروشنده، نه ربات، نه پشتیبانی — فقط یه آدم معمولی باتجربه.\n"
+    "چیزایی که بلدی: ریتالین و کونسرتا (متیل‌فنیدات اروپایی)، اوزمپیک و مونجارو (کاهش وزن/دیابت)، مودافینیل (تمرکز)، پرداخت با USDT روی TRC20 (کم‌کارمزد)، ارسال محرمانه به تهران/استانبول/دبی/تورنتو در ۴-۸ ساعت.\n"
+    "قانون اصلی: ۱ تا ۳ جمله کوتاه و محاوره‌ای. مثل حرف زدن با دوست. از «آره»، «خودم گرفتم»، «معمولاً»، «بستگه داره»، «تجربه‌ام» استفاده کن.\n"
+    "هرگز: لیست، «البته»، «حتماً»، «در نتیجه»، جملات رسمی، پرانتز توضیح، ادعای ۱۰۰٪، هالوسیناسیون برند یا شبکه. اگر جواب نمیدونی بگو «دقیق نمیدونم» و یه سوال بپرس.\n"
+    "هدف: طبیعی حرف بزن — کاربر باید احساس کنه با یه آدم واقعی حرف میزنه نه ربات. اگه سوال ادامه داشت یه جمله کوتاه اضافه کن که بخواد بیشتر باهات حرف بزنه."
 )
 
 def build_group_messages(user_text: str, retrieved: str, recent_ctx: list, exchange_lines: list, notes: str, mem_ctx: str) -> list:
@@ -13253,9 +13252,11 @@ try:
         director as _director,
         content_intel as _content_intel,
         decide_engagement as _strategist,
+        generate_natural_reply_local as _fast_local_gen,
     )
     USE_AI_CORE = True
-except Exception:
+except Exception as _aicore_err:
+    slog(f"AI core import partial/failed: {_aicore_err}")
     _qwen3_client = None
     _core_classify = None
     _core_retrieve = None
@@ -13265,6 +13266,7 @@ except Exception:
     _director = None
     _content_intel = None
     _strategist = None
+    _fast_local_gen = None
     USE_AI_CORE = False
 
 # ═══════════════════════════════════════════════════════════
@@ -13496,149 +13498,161 @@ async def handle_owner_command(event):
     return False
 
 
-async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int = None, *, high_value: bool = False) -> Optional[str]:
+async def call_qwen3_natural(recent_ctx: list, user_text: str, chat_id: int = None, *, high_value: bool = False) -> Optional[str]:
     """
-    Lean, high-quality pipeline for Qwen3 1.7b on CPU.
-    Mirrors the web3test approach: small system prompt + clean context + think=False + temp=0.25.
-    Full pipeline: classify → retrieve → build (max 2 system msgs) → call model → clean → gate.
+    Professional multi-layer pipeline for Qwen3 1.7b on CPU.
+    Layer 1: Template responses (instant, perfect for known intents)
+    Layer 2: Fast local generator (grounded, deterministic, always works)
+    Layer 3: LLM call (think=False, 18s timeout, adds diversity)
+    Layer 4: Intent-based diverse fallback pool (never same text twice)
     """
-    # 1. Classify intent + retrieve grounded knowledge (full director direction)
-    if USE_AI_CORE and _core_classify and _core_retrieve:
+    # ── 1. Intent classification + knowledge retrieval ───────────────────────
+    if USE_AI_CORE and _core_classify:
         intent_info = _core_classify(user_text)
-        intent = intent_info.get('intent', 'unknown')
-        try:
-            retrieved = (_core_compose(user_text, intent) if _core_compose else None) or _core_retrieve(user_text, intent)
-        except Exception:
-            retrieved = _core_retrieve(user_text, intent)
     else:
         intent_info = classify_intent(user_text)
-        intent = intent_info.get('intent', 'unknown')
-        retrieved = retrieve_knowledge(user_text, intent)
+    intent = intent_info.get('intent', 'unknown')
 
-    # Director + content intel for intelligent direction + occasional natural value insert
-    variant = 'general_engage'
-    insert_snippet = ''
+    retrieved = ""
     try:
-        if USE_AI_CORE and _director:
-            d = _director.decide_variant(intent, user_text, high_value)
-            variant = d.get('variant', variant)
-        if USE_AI_CORE and _content_intel and retrieved and random.random() < 0.45:
-            ins = _content_intel.get_relevant_snippet(user_text, intent)
-            if ins and len(ins) > 12:
-                insert_snippet = ins
-                retrieved = (retrieved + '\n' + ins)[:600] if retrieved else ins
+        if USE_AI_CORE and _core_compose:
+            retrieved = _core_compose(user_text, intent) or ""
+        if not retrieved:
+            retrieved = retrieve_knowledge(user_text, intent) or ""
+    except Exception:
+        retrieved = retrieve_knowledge(user_text, intent) or ""
+
+    # ── 2. Template response (instant, diverse, reliable for known intents) ──
+    template = _get_template_response(intent, user_text)
+
+    # ── 3. Fast local generator (grounded, deterministic) ────────────────────
+    fast_local = None
+    try:
+        if _fast_local_gen:
+            fast_local = _fast_local_gen(user_text, intent, retrieved or "")
     except Exception:
         pass
 
-    # 2. Build lean messages (max 2 system messages — web3test proven approach)
-    exchange_lines = [f"{r}: {t[:80]}" for r, t in list(group_exchange_history.get(chat_id, []))[-3:]]
-    notes = get_group_notes(chat_id) if chat_id else ""
+    # ── 4. LLM call (NO think=True — too slow for 1.7b on CPU, always times out) ─
+    llm_result = None
+    try:
+        exchange_lines = [f"{r}: {t[:80]}" for r, t in list(group_exchange_history.get(chat_id, []))[-3:]]
+        notes = get_group_notes(chat_id) if chat_id else ""
+        messages = build_group_messages(
+            user_text=user_text,
+            retrieved=retrieved or "",
+            recent_ctx=[],  # raw ctx causes hallucination on off-topic groups
+            exchange_lines=exchange_lines,
+            notes=notes,
+            mem_ctx="",
+        )
+        temp = 0.40
+        max_tokens = 110
+        num_ctx = 2048  # smaller = faster on CPU
 
-    messages = build_group_messages(
-        user_text=user_text,
-        retrieved=retrieved or "",
-        recent_ctx=recent_ctx or [],
-        exchange_lines=exchange_lines,
-        notes=notes,
-        mem_ctx="",  # skip mem_ctx to reduce noise on small model
-    )
+        raw = ""
+        if _qwen3_client is not None:
+            try:
+                res = await asyncio.wait_for(
+                    _qwen3_client.chat(messages, max_tokens=max_tokens, temperature=temp,
+                                       use_think=False, num_ctx=num_ctx),
+                    timeout=22.0
+                )
+                raw = (res.get("content") or res.get("raw") or "").strip()
+            except (asyncio.TimeoutError, Exception):
+                pass
 
-    # 3. Call model — use think + better params for max intelligence on Qwen3 (web3test proven)
-    # use_think for complex / high value to get professional reasoning trace
-    use_think = high_value and len(user_text) > 40   # only for truly valuable cases
-    temp = 0.40
-    max_tokens = 90 if not high_value else 130   # short for fast natural replies
-    num_ctx = 3072
+        # Direct HTTP fallback if client unavailable
+        if not raw:
+            try:
+                http_timeout = aiohttp.ClientTimeout(total=22)
+                async with aiohttp.ClientSession(timeout=http_timeout) as s:
+                    pp = {
+                        "model": QWEN3_MODEL, "messages": messages, "stream": False, "think": False,
+                        "options": {"temperature": temp, "num_predict": max_tokens, "num_ctx": num_ctx,
+                                    "repeat_penalty": 1.18, "top_p": 0.85, "top_k": 40}
+                    }
+                    async with s.post(f"{QWEN3_BASE_URL}/api/chat", json=pp) as rr:
+                        if rr.status == 200:
+                            dd = await rr.json(content_type=None)
+                            raw = (dd.get('message', {}).get('content') or '').strip()
+            except Exception:
+                pass
 
-    raw = ""
-    if _qwen3_client is not None:
+        if raw:
+            cleaned = _clean_natural(raw)
+            cleaned = _repair_group_output(cleaned)
+            if cleaned and is_high_quality_natural(cleaned):
+                llm_result = cleaned
+
+    except Exception:
+        pass
+
+    # ── 5. Rank candidates: LLM > fast_local > template ─────────────────────
+    hist = list(group_exchange_history.get(chat_id, []))
+    rep_fn = (_core_is_repeated if (USE_AI_CORE and _core_is_repeated) else is_repeated_response)
+
+    result = None
+    for candidate in [llm_result, fast_local, template]:
+        if not candidate:
+            continue
+        if not is_high_quality_natural(candidate):
+            continue
         try:
-            res = await _qwen3_client.chat(messages, max_tokens=max_tokens, temperature=temp, use_think=use_think, num_ctx=num_ctx)
-            raw = res.get("raw") or res.get("content") or ""
-        except Exception as e:
-            slog(f"qwen client err: {e}")
-
-    # Direct HTTP fallback (better params)
-    if not raw:
-        try:
-            timeout = aiohttp.ClientTimeout(total=50)
-            async with aiohttp.ClientSession(timeout=timeout) as s:
-                pp = {
-                    "model": QWEN3_MODEL, "messages": messages, "stream": False, "think": use_think,
-                    "options": {"temperature": temp, "num_predict": max_tokens, "num_ctx": num_ctx,
-                                "repeat_penalty": 1.18, "top_p": 0.85, "top_k": 40}
-                }
-                async with s.post(f"{QWEN3_BASE_URL}/api/chat", json=pp) as rr:
-                    if rr.status == 200:
-                        dd = await rr.json(content_type=None)
-                        raw = (dd.get('message', {}).get('content') or '').strip()
+            if rep_fn(candidate, hist):
+                continue
         except Exception:
             pass
+        result = candidate
+        break
 
-    # 4. Clean + repair (use model_guard style + local repair)
-    cleaned = _clean_natural(raw)
-    try:
-        cleaned = _repair_group_output(cleaned)
-    except Exception:
-        pass
+    # ── 6. Diverse fallback pool — never returns the same hardcoded text ─────
+    if not result:
+        result = _intent_fallback(intent, user_text)
+        log_ai_response(f"fallback intent={intent} gid={chat_id}", "", result or "")
 
-    # 5. Quality gate — use strong local natural generator as primary/fast path.
-    # LLM is tried for high_value but slow model means we must be fast and always good.
-    if (not cleaned or len(cleaned.strip()) < 8 or not is_high_quality_natural(cleaned)):
-        log_ai_response(f"using_fast_local intent={intent} gid={chat_id}", raw[:60] if raw else '', "")
+    # ── 7. Record and return ─────────────────────────────────────────────────
+    if result:
         try:
-            if USE_AI_CORE and 'generate_natural_reply_local' in dir():
-                from ai.ai_core import generate_natural_reply_local as _fast_local
-            else:
-                _fast_local = None
-        except:
-            _fast_local = None
+            if chat_id:
+                update_user_memory(chat_id, 0, user_text[:50])
+                _record_bot_output(chat_id, result)
+        except Exception:
+            pass
+        log_ai_response(
+            f"OK intent={intent} llm={'yes' if llm_result else 'no'} local={'yes' if fast_local else 'no'} gid={chat_id}",
+            "",
+            result,
+        )
 
-        if _fast_local:
-            fast = _fast_local(user_text, intent, retrieved or "", "real_answer" if high_value else "general_engage")
-            if fast and is_high_quality_natural(fast):
-                try:
-                    if chat_id: _record_bot_output(chat_id, fast)
-                except: pass
-                return fast
+    return result
 
-        # Strong composer based
-        grounded = ""
-        if USE_AI_CORE and _core_compose:
-            try: grounded = _core_compose(user_text, intent) or ""
-            except: grounded = retrieved or ""
-        else:
-            grounded = retrieved or ""
 
-        if grounded:
-            lines = [ln.strip() for ln in grounded.split('\n') if 12 < len(ln.strip()) < 180]
-            if lines:
-                pick = lines[0]
-                natural = pick
-                if not any(v in natural for v in ['می‌دونم', 'برام', 'معمولاً', 'راستش', 'گرفتم']):
-                    natural = "معمولاً " + natural[0].lower() + natural[1:]
-                if 12 < len(natural) < 180 and is_high_quality_natural(natural):
-                    return natural
+def _intent_fallback(intent: str, user_text: str) -> str:
+    """Diverse, intent-aware fallback. Pulls from TEMPLATE_RESPONSES first, then general pool."""
+    # Try template pool for this intent
+    pool = TEMPLATE_RESPONSES.get(intent)
+    if not pool:
+        # Try drug detection
+        for pattern, key in _DRUG_TEMPLATE_MAP:
+            if pattern.search(user_text or ''):
+                pool = TEMPLATE_RESPONSES.get(key)
+                break
+    if pool:
+        return random.choice(pool)
 
-        safe = "آره تجربه منم شبیه همین بود. دقیق بگو ببینم."
-        return safe if is_high_quality_natural(safe) else None
-
-    # Repetition guard
-    rep_fn = _core_is_repeated if (USE_AI_CORE and _core_is_repeated) else is_repeated_response
-    if rep_fn(cleaned, list(group_exchange_history.get(chat_id, []))):
-        log_ai_response(f"gate_rep intent={intent} gid={chat_id}", raw[:80], cleaned[:60])
-        return None
-
-    # 6. Success — record and return
-    try:
-        if chat_id:
-            update_user_memory(chat_id, 0, user_text[:50])
-            _record_bot_output(chat_id, cleaned)
-    except Exception:
-        pass
-
-    log_ai_response(f"OK intent={intent} think={use_think} gid={chat_id}", raw[:120], cleaned)
-    return cleaned
+    # Generic diverse pool — NEVER the single canned phrase
+    general_pool = [
+        "بگو ببینم، چی دنبالشی؟",
+        "جزئیات بیشتری بده تا بهتر کمک کنم.",
+        "آره، این موضوع رو میشناسم. بیشتر توضیح بده.",
+        "سوالت رو کامل‌تر بگو، راهنماییت میکنم.",
+        "تجربه‌ای دارم در این زمینه. دقیق بگو چی میخوای.",
+        "چه شهری هستی؟ بستگه داره.",
+        "کمک میکنم، ولی بیشتر توضیح بده.",
+        "این موضوع رو میدونم، بگو دقیق چی لازم داری؟",
+    ]
+    return random.choice(general_pool)
 
 # Back-compat thin wrapper (used by older internal paths if any)
 async def call_qwen3_api(user_message: str) -> Optional[str]:
