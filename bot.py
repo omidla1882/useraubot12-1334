@@ -13162,15 +13162,22 @@ def retrieve_knowledge(query: str, intent: str = "") -> str:
 # Adapted for "experienced casual group peer" persona (not official support agent).
 GROUP_SYSTEM_PROMPT = (
     "تو یک ایرانی ۳۰ ساله‌ای و عضو واقعی این گروه تلگرامی هستی. نه ربات، نه فروشنده — یک آدم باتجربه.\n\n"
+    "دانش پایه‌ات (مثل تجربه شخصی بگو، نه تبلیغ):\n"
+    "• ریتالین، کونسرتا، ساندوز (ADHD) — اورجینال اروپایی از medpharmaweb.com\n"
+    "• اوزمپیک، مونجارو (کاهش وزن/دیابت) — موجوده، نووو نوردیسک\n"
+    "• مودافینیل — بیداری و تمرکز\n"
+    "• پرداخت: USDT روی TRC20 (کم‌کارمزد)، BTC، ETH، BNB، TON\n"
+    "• ارسال: تهران، استانبول، دبی، تورنتو — ۴-۸ ساعت بعد تأیید، محرمانه\n\n"
     "قانون پاسخ:\n"
     "• ۱ تا ۳ جمله کوتاه محاوره‌ای — مثل صحبت با دوست\n"
     "• از این کلمات استفاده کن: آره، می‌دونم، برام هم همین‌طور بود، معمولاً، راستش\n"
     "• ممنوع: لیست، شماره، «البته»، «حتماً»، پاراگراف بلند، تکرار\n"
     "• اگه نمی‌دونی: «دقیق نمی‌دونم» + یه سوال کوتاه برگردون\n"
-    "• درباره دارو/خرید: «من از یه سایت خارجی گرفتم، سریع اومد» — طبیعی، بدون فشار\n"
+    "• درباره دارو/خرید: «من از همون سایت گرفتم، اورجینال بود» — طبیعی، بدون فشار فروش\n"
     "• درباره پرداخت: «TRC20 برام کارمزد کم داشت، سریع تأیید شد»\n"
     "• اگه پرسید رباتی؟ بگو: «نه بابا آدمم» و ادامه بده\n\n"
-    "نمونه خوب: «آره ریتالین اورجینال پیدا کردن سخته، من از یه سایت اروپایی گرفتم خوب بود»\n"
+    "نمونه خوب: «آره ریتالین اورجینال پیدا کردن سخته، من از medpharmaweb گرفتم خوب بود. کجایی؟»\n"
+    "نمونه خوب: «TRC20 برام سریع بود، ۱۰ دقیقه تأیید شد. آدرس رو دقیق چک کن»\n"
     "نمونه بد: «البته! این یک موضوع مهم است. ۱. ابتدا باید...»\n\n"
     "هدف: مکالمه‌ای که کاربر خودش بخواد ادامه بده و به پیام خصوصی کشیده بشه."
 )
@@ -13179,19 +13186,23 @@ def build_group_messages(user_text: str, retrieved: str, recent_ctx: list, excha
     """Build lean messages list — max 2 system messages to avoid confusing the 1.7b model."""
     messages = [{"role": "system", "content": GROUP_SYSTEM_PROMPT}]
 
-    # Combine all context into one secondary system message to stay lean
     ctx_parts = []
     if retrieved:
-        ctx_parts.append(f"اطلاعات مرتبط:\n{retrieved[:350]}")
+        ctx_parts.append(f"اطلاعات:\n{retrieved[:220]}")
+    # Always include fresh group context (recent messages from the group) when available
+    if recent_ctx:
+        if isinstance(recent_ctx[0], str) and len(recent_ctx[0]) > 5:
+            ctx_parts.append(f"گروه:\n{recent_ctx[0][:260]}")
+        else:
+            ctx_text = "\n".join(str(c)[:80] for c in recent_ctx[:2] if c)
+            if ctx_text:
+                ctx_parts.append(f"گروه:\n{ctx_text}")
+    # Always include conversation history (bot ↔ user exchange)
     if exchange_lines:
-        ctx_parts.append("مکالمه اخیر:\n" + "\n".join(exchange_lines[-2:]))
-    elif recent_ctx:
-        ctx_text = "\n".join(str(c)[:80] for c in recent_ctx[-2:] if c)
-        if ctx_text:
-            ctx_parts.append(f"پیام‌های اخیر:\n{ctx_text}")
+        ctx_parts.append("مکالمه:\n" + "\n".join(exchange_lines[-2:]))
 
     if ctx_parts:
-        messages.append({"role": "system", "content": "\n\n".join(ctx_parts)[:500]})
+        messages.append({"role": "system", "content": "\n\n".join(ctx_parts)[:520]})
 
     messages.append({"role": "user", "content": user_text})
     return messages
@@ -13655,18 +13666,13 @@ async def handle_group_ai(event):
         # Human-like behavior before replying
         await simulate_read_and_type(client, event.chat)
 
-        # Build rich context: recent messages + recent exchanges + group notes
+        # Build context: fresh group messages (passed as recent_ctx) +
+        # per-user exchange history (handled inside call_qwen3_natural via group_exchange_history)
         group_chat_memory[chat_id].append(text)
-        memory_ctx = list(group_chat_memory[chat_id])[-6:]
-        exchange_lines = []
-        for role, txt in list(group_exchange_history[chat_id])[-6:]:
-            exchange_lines.append(f"{role}: {txt[:200]}")
-        notes_str = get_group_notes(chat_id)
-        fresh_ctx = await fetch_recent_group_context(client, chat_id, limit=10)
-        ctx_for_llm = [fresh_ctx] + exchange_lines + ([f"یادداشت: {notes_str}"] if notes_str else [])
+        fresh_ctx = await fetch_recent_group_context(client, chat_id, limit=8)
 
-        # Full intelligent pipeline (properly directed + processed by model, real answers, occasional relevant content)
-        response = await call_qwen3_natural(ctx_for_llm, text, chat_id=chat_id, high_value=True)
+        # Full intelligent pipeline
+        response = await call_qwen3_natural([fresh_ctx], text, chat_id=chat_id, high_value=True)
 
         if not response:
             if is_mentioned:
@@ -13793,26 +13799,17 @@ _starter_min_interval = 7200  # at least 2h between starters per group
 async def _post_conversation_starter(gid: int) -> bool:
     """Post a natural conversation starter in a group to initiate engagement."""
     now = time.time()
-    last = _last_starter_time.get(gid, 0)
-    if now - last < _starter_min_interval:
+    if now - _last_starter_time.get(gid, 0) < _starter_min_interval:
         return False
     try:
         starter = random.choice(CONVERSATION_STARTERS)
-        # Occasionally generate an AI starter instead of using canned text
-        if random.random() < 0.4:
-            recent_ctx = await fetch_recent_group_context(client, gid, limit=5)
-            ai_hint = f"یه موضوع جالب برای شروع مکالمه توی این گروه بنویس. یه جمله کوتاه محاوره‌ای، مثل یه سوال یا نظر. اطلاعات گروه: {recent_ctx[:200] if recent_ctx else 'دارو، کریپتو، مهاجرت'}"
-            ai_starter = await call_qwen3_natural([], ai_hint, chat_id=gid)
-            if ai_starter and is_high_quality_natural(ai_starter) and len(ai_starter) > 12:
-                starter = ai_starter
-
         await simulate_read_and_type(client, gid)
         await client.send_message(gid, starter)
         _last_starter_time[gid] = now
         _record_bot_output(gid, starter)
         group_exchange_history[gid].append(("bot", starter))
         log_ai_response(f"STARTER gid={gid}", "", starter)
-        slog(f"💬 Conversation starter posted in {gid}: {starter[:50]}")
+        slog(f"💬 Starter in {gid}: {starter[:60]}")
         return True
     except (ChatWriteForbiddenError, ChannelPrivateError, UserBannedInChannelError):
         return False
@@ -13924,7 +13921,7 @@ async def group_observer_task():
 
                         candidate_msgs.sort(key=_msg_score, reverse=True)
                         target_msg = candidate_msgs[0]
-                        if _msg_score(target_msg) < 3.2:  # raised bar — only high-value messages get replies
+                        if _msg_score(target_msg) < 2.5:  # includes crypto (3.0) + migration (2.5) messages
                             continue
 
                         target_text = target_msg.text.strip()
