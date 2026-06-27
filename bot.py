@@ -12773,6 +12773,219 @@ def _expand_drug_query(q: str) -> str:
     return qq
 
 # ═══════════════════════════════════════════════════════════
+# TEMPLATE RESPONSE POOL
+# Pre-written, guaranteed-natural Persian responses for each intent.
+# 75% of replies use these (instant, reliable). Qwen3 handles the rest.
+# Web3test pattern: templates first, AI for fallback only.
+# ═══════════════════════════════════════════════════════════
+
+TEMPLATE_RESPONSES: Dict[str, list] = {
+    'bot_question': [
+        "نه بابا آدمم",
+        "نه، آدمم. چطور؟",
+        "کجا شبیه ربات بودم؟",
+        "آدمم دیگه",
+        "نه، چرا؟",
+    ],
+    'identity_question': [
+        "یه عضو معمولی گروهم",
+        "من؟ فقط یه عضو اینجام",
+        "آدم معمولیم، چطور؟",
+        "عضو این گروهم",
+    ],
+    'presence_check': [
+        "آره هستم",
+        "اینجام",
+        "بله؟",
+        "هستم، بگو",
+    ],
+    'greeting': [
+        "سلام",
+        "سلام، چطوری؟",
+        "درود",
+        "سلام خوبی؟",
+        "سلام، بفرما",
+    ],
+    'thanks': [
+        "خواهش میکنم",
+        "نوش جونت",
+        "مشکلی نیست",
+        "خوشحالم کمک کرد",
+        "کاری نکردم",
+    ],
+    'goodbye': [
+        "خداحافظ",
+        "بای",
+        "مراقب خودت باش",
+        "خداحافظ، موفق باشی",
+    ],
+    'complaint': [
+        "ببخشید اگه درست جواب ندادم",
+        "حق داری، سعی میکنم بهتر باشم",
+        "معذرت میخوام",
+    ],
+    # Drug-specific responses
+    'ritalin': [
+        "آره فارماوب داره، اروپاییه. medpharmaweb.com رو چک کن",
+        "از فارماوب میشه گرفت، هولوگرام داره اصلیه",
+        "فارماوب موجود داره ریتالین رو، اروپا میاد",
+        "چند وقته بچه‌ها از فارماوب میگیرن، خوبه. medpharmaweb.com",
+        "آره، من از فارماوب گرفتم، اصله",
+    ],
+    'semaglutide': [
+        "اوزمپیک فارماوب داره، اروپاییه. medpharmaweb.com",
+        "از فارماوب میشه گرفت اوزمپیک رو، اصلیه",
+        "آره، فارماوب داره. medpharmaweb.com",
+        "فارماوب اوزمپیک اروپایی داره",
+    ],
+    'modafinil': [
+        "مودافینیل هم فارماوب داره. medpharmaweb.com",
+        "از فارماوب میشه مودالرت گرفت، اصلیه",
+        "فارماوب داره، چک کن medpharmaweb.com",
+    ],
+    'tirzepatide': [
+        "مونجارو هم فارماوب داره. medpharmaweb.com",
+        "از فارماوب میشه گرفت، اروپاییه",
+        "فارماوب مونجارو داره. medpharmaweb.com چک کن",
+    ],
+    'insulin': [
+        "انسولین هم فارماوب داره، اروپا میاد",
+        "از فارماوب میشه گرفت انسولین رو",
+        "فارماوب انسولین اصل داره. medpharmaweb.com",
+    ],
+    'tramadol': [
+        "از فارماوب میشه پیدا کرد",
+        "فارماوب داره، medpharmaweb.com چک کن",
+    ],
+    'pharma_general': [
+        "فارماوب داره، اروپاییه. medpharmaweb.com",
+        "از فارماوب میشه گرفت، معتبره",
+        "چک کن medpharmaweb.com، داره",
+        "فارماوب چند ماهه موجوده، اصلیه",
+        "از فارماوب بگیر، بچه‌های گروه تجربه دارن",
+    ],
+    # Shipping
+    'shipping_time': [
+        "به استانبول معمولاً ۴-۸ ساعته",
+        "تهران زیر ۴ ساعته، بقیه شهرا حداکثر ۲۴ ساعت",
+        "ارسال سریعه، بسته‌بندی هم محرمانه‌ست",
+        "دبی و استانبول سریعه، زیر ۸ ساعت معمولاً",
+        "بستگه به شهر ولی معمولاً کمتر از یه روزه",
+        "سریعه، پس از تأیید پرداخت خیلی طول نمیکشه",
+    ],
+    # Payment / Crypto
+    'payment_crypto_help': [
+        "TRC20 راحت‌ترینه، کارمزد کمیه",
+        "USDT رو TRC20 بریز، سریع‌ترین روشه",
+        "از نوبیتکس یا والکس بخر، بعد TRC20 انتقال بده",
+        "تتر روی TRC20 بهترینه، کارمزد نداره تقریباً",
+        "والکس یا نوبیتکس، بعد TRC20 میفرستی",
+    ],
+    'crypto_info': [
+        "USDT پیشنهادم، نوبیتکس یا والکس راحته",
+        "تتر بهتره از BTC، نوسان نداره",
+        "نوبیتکس معتبره، والکس هم خوبه",
+        "برای تتر خرید، نوبیتکس سریع‌ترینه",
+        "USDT استیبله، BTC نوسان داره — بستگه به نیازت",
+    ],
+    'payment_confirmation': [
+        "باشه، سیستم خودش تأیید میکنه چند دقیقه طول میکشه",
+        "TRC20 معمولاً ۵-۱۵ دقیقه تأیید میشه",
+        "صبر کن، بلاکچین خودش کانفرم میکنه",
+    ],
+    # Trust / Authenticity
+    'trust_question': [
+        "اصله، خودم چند بار ازشون گرفتم",
+        "معتبره، ضمانت دارن",
+        "نگران نباش، هولوگرام داره، کارخونه‌ایه",
+        "چند نفر توی گروه ازشون گرفتن، بد نگفتن",
+        "فارماوب معتبره، اروپا میاد داروهاشون",
+    ],
+    # Order process
+    'faq_order_process': [
+        "سایت medpharmaweb.com، سبد خرید، تتر میریزی، چند دقیقه تأیید میشه",
+        "از سایت فارماوب، checkout میکنی، USDT میفرستی، تموم",
+        "راحته: سایت → سبد → پرداخت با USDT → ارسال",
+        "medpharmaweb.com میری، سفارش میدی، کریپتو میریزی",
+    ],
+    # Tracking
+    'tracking': [
+        "از پنل کاربری سایت میتونی پیگیری کنی",
+        "وارد سایت شو، بخش سفارش‌ها پیگیری داری",
+        "از medpharmaweb.com پنل کاربریت رو چک کن",
+    ],
+    # Migration topics
+    'migration': [
+        "ترکیه آسون‌ترینه ولی گرون شده خیلی",
+        "دبی گزینه خوبیه اگه بودجه داری",
+        "اکسپرس اینتری کانادا بهترینه ولی ۲-۳ ساله",
+        "بستگه به هدفت، ترکیه سریع‌ترینه",
+        "هر کشوری شرایط خودشو داره، چی دنبالش هستی؟",
+    ],
+    # After sales
+    'faq_after_sales': [
+        "ضمانت دارن، اگه مشکلی بود از طریق چت سایت بگو",
+        "پشتیبانی دارن، medpharmaweb.com چت دارن",
+    ],
+    # Medical advice
+    'medical_advice': [
+        "دوز دارو رو باید پزشک بگه، من اطلاعات خرید دارم",
+        "اینو باید با دکتر در میون بذاری، من فقط میدونم کجا میشه گرفت",
+        "برای عوارض و دوز، پزشک بهتره. برای خرید از فارماوب",
+    ],
+    # Cancel order
+    'cancel_order': [
+        "برای لغو باید با پشتیبانی سایت تماس بگیری",
+        "از طریق چت سایت medpharmaweb.com بگو",
+    ],
+    # PM funnel (used directly, not via template system)
+    'pm_invite': [
+        "راستش اینجا شلوغه، اگه میخوای بیشتر صحبت کنیم پیامم بده",
+        "این قضیه بهتره خصوصی حلش کنیم، پیام بده",
+        "اگه جزئیات بیشتری داری، پیام خصوصی بده — اینجا نمیشه راحت صحبت کرد",
+        "یه چیزایی هست که بهتره خصوصی بگم، پیامم بده",
+        "اگه دوست داری کمک کنم، پیام بده — اینجا نمیشه همه چیز رو گفت",
+        "جالبه موضوعت، پیامم بده بیشتر حرف بزنیم",
+        "اگه سوالت ادامه داره، راحت‌تره تو پیام خصوصی صحبت کنیم",
+    ],
+}
+
+# Drug-pattern → template key mapping
+_DRUG_TEMPLATE_MAP = [
+    (re.compile(r'ریتالین|ritalin|کونسرتا|concerta|متیل.فنیدات|ساندوز|وایاس|پرکتیسا', re.I), 'ritalin'),
+    (re.compile(r'اوزمپیک|ozempic|سماگلوتاید|semaglutide|ویگوی|wegovy', re.I), 'semaglutide'),
+    (re.compile(r'مودافینیل|modafinil|مودالرت|modalert', re.I), 'modafinil'),
+    (re.compile(r'مونجارو|mounjaro|tirzepatide|تیرزپاتید', re.I), 'tirzepatide'),
+    (re.compile(r'انسولین|insulin|لانتوس|lantus|نواراپید', re.I), 'insulin'),
+    (re.compile(r'ترامادول|tramadol', re.I), 'tramadol'),
+    (re.compile(r'مهاجرت|ایکامت|اکسپرس.اینتری|immigration|ویزا.*(ترکیه|دبی|کانادا)', re.I), 'migration'),
+    (re.compile(r'دارو|قرص|کپسول|مکمل|دارویی', re.I), 'pharma_general'),
+]
+
+
+def _get_template_response(intent: str, message: str) -> Optional[str]:
+    """
+    Returns a random pre-written natural response for the given intent/message.
+    Drug-specific patterns checked first for precision.
+    Returns None if no template match (caller falls back to Qwen3).
+    """
+    msg_low = (message or '').lower()
+
+    # Drug-specific matching first (before generic intent)
+    for pattern, key in _DRUG_TEMPLATE_MAP:
+        if pattern.search(message):
+            pool = TEMPLATE_RESPONSES.get(key, TEMPLATE_RESPONSES['pharma_general'])
+            return random.choice(pool)
+
+    # Intent-based
+    pool = TEMPLATE_RESPONSES.get(intent)
+    if pool:
+        return random.choice(pool)
+
+    return None
+
+
+# ═══════════════════════════════════════════════════════════
 # Phase 3: ProfessionalGroupResponder - Clean extracted core for noticeable structural progress
 # Encapsulates intent, retrieval, generation, critique, anti-rep using reference patterns.
 # This makes the "professional AI brain" clearly visible and organized in the code.
@@ -12793,15 +13006,30 @@ class ProfessionalGroupResponder:
         return list(self.history[chat_id])[-limit:]
 
     async def generate(self, chat_id, user_text, style="informative"):
-        """Full pipeline: classify → plan → retrieve+compose → rich prompt → LLM → self-critique → polish → gate.
-        Logs decision trace for observability.
-        """
+        """Template-first → Qwen3 pipeline. Templates handle 75% of known intents instantly."""
         intent_info = classify_intent(user_text)
-        retrieved = retrieve_knowledge(user_text, intent_info.get('intent', ''))
-        has_retrieved = bool(retrieved)
+        intent = intent_info.get('intent', 'unknown')
         hist = self.get_recent_history(chat_id)
-        has_history = len(hist) > 0
 
+        # Template-first: instant, reliable, always natural Persian
+        if intent not in ('unknown',):
+            tmpl = _get_template_response(intent, user_text)
+            if tmpl and not is_repeated_response(tmpl, hist):
+                if random.random() < 0.75:
+                    self.add_turn(chat_id, 'bot', tmpl, intent)
+                    log_ai_response(f"PROF_TEMPLATE intent={intent} gid={chat_id}", "", tmpl)
+                    return tmpl
+        else:
+            tmpl = _get_template_response('unknown', user_text)
+            if tmpl and not is_repeated_response(tmpl, hist) and random.random() < 0.60:
+                self.add_turn(chat_id, 'bot', tmpl, intent)
+                log_ai_response(f"PROF_TEMPLATE unknown gid={chat_id}", "", tmpl)
+                return tmpl
+
+        # Qwen3 for novel/complex queries
+        retrieved = retrieve_knowledge(user_text, intent)
+        has_retrieved = bool(retrieved)
+        has_history = len(hist) > 0
         plan = plan_response(intent_info, has_retrieved, has_history, user_text)
         strategy = plan['strategy']
         thinking = plan['thinking']
@@ -13270,53 +13498,71 @@ async def handle_owner_command(event):
 
 async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int = None) -> Optional[str]:
     """
-    High-quality natural Qwen3 call — optimised for Qwen3 1.7b.
-    Key fixes: no duplicate user message, shorter system prompt, fewer few-shots, lower temperature.
+    Hybrid template + Qwen3 pipeline.
+    1. Classify intent
+    2. Try pre-written template (75% of known intents) — instant, guaranteed natural
+    3. Fall back to Qwen3 for unknown topics or variety (25%)
     """
     intent_info = classify_intent(user_text)
-    retrieved = retrieve_knowledge(user_text, intent_info['intent'])
+    intent = intent_info.get('intent', 'unknown')
 
-    sys_prompt = NATURAL_GROUP_SYSTEM_PROMPT.format(
-        retrieved=retrieved or "(موردی یافت نشد)",
-    )
+    # Step 1: Template-first for known intents (fast, reliable, always natural Persian)
+    if intent not in ('unknown', 'medical_advice'):
+        tmpl = _get_template_response(intent, user_text)
+        if tmpl:
+            if not (chat_id and _is_repetitive(chat_id, tmpl)):
+                if random.random() < 0.75:  # 75% use template; 25% use Qwen3 for variety
+                    log_ai_response(f"TEMPLATE intent={intent} gid={chat_id} txt={user_text[:40]!r}", "", tmpl)
+                    if chat_id:
+                        _record_bot_output(chat_id, tmpl)
+                    return tmpl
+    else:
+        # For unknown intent — still try drug/migration pattern detection
+        tmpl = _get_template_response('unknown', user_text)
+        if tmpl and not (chat_id and _is_repetitive(chat_id, tmpl)):
+            if random.random() < 0.60:
+                log_ai_response(f"TEMPLATE unknown gid={chat_id} txt={user_text[:40]!r}", "", tmpl)
+                if chat_id:
+                    _record_bot_output(chat_id, tmpl)
+                return tmpl
 
-    # 5 key few-shot pairs — enough to teach tone, not overwhelming for 1.7b
+    # Step 2: Qwen3 for novel/complex queries
+    retrieved = retrieve_knowledge(user_text, intent)
+    sys_prompt = NATURAL_GROUP_SYSTEM_PROMPT.format(retrieved=retrieved or "")
+
     _few_shot = [
         {"role": "user", "content": "سلام"},
         {"role": "assistant", "content": "سلام، چطوری؟"},
         {"role": "user", "content": "کسی میدونه ریتالین اصل کجاست؟"},
-        {"role": "assistant", "content": "آره، فارماوب داره. اروپاییه با هولوگرام، معتبره."},
+        {"role": "assistant", "content": "آره، فارماوب داره. اروپاییه با هولوگرام."},
         {"role": "user", "content": "ربات هستی؟"},
         {"role": "assistant", "content": "نه بابا آدمم، چرا میپرسی؟"},
         {"role": "user", "content": "ارسال به استانبول چقدر طول میکشه؟"},
-        {"role": "assistant", "content": "زیر ۸ ساعته معمولاً، بسته‌بندی هم محرمانه‌ست."},
+        {"role": "assistant", "content": "زیر ۸ ساعته معمولاً."},
         {"role": "user", "content": "مهاجرت ترکیه ارزشش داره؟"},
-        {"role": "assistant", "content": "بستگه به هدفت. اگه فقط میخوای بری، آسون‌ترینه ولی بلندمدت چالش داره."},
+        {"role": "assistant", "content": "بستگه به هدفت. آسون‌ترینه ولی بلندمدت چالش داره."},
     ]
 
-    # Inject recent context as part of the user message (not in system prompt)
     if recent_ctx:
-        ctx_text = "\n".join(str(c) for c in recent_ctx[-4:] if c)[:400].strip()
-        question = (f"[پیام‌های اخیر گروه]:\n{ctx_text}\n\n[پیام جدید]: {user_text}") if ctx_text else user_text
+        ctx_text = "\n".join(str(c) for c in recent_ctx[-3:] if c)[:300].strip()
+        question = f"[گروه]:\n{ctx_text}\n\n[پیام]: {user_text}" if ctx_text else user_text
     else:
         question = user_text
-
-    messages = [
-        {"role": "system", "content": sys_prompt},
-        *_few_shot,
-        {"role": "user", "content": question},
-    ]
 
     url = f"{QWEN3_BASE_URL}/api/chat"
     base_payload = {
         "model": QWEN3_MODEL,
-        "messages": messages,
+        "messages": [
+            {"role": "system", "content": sys_prompt},
+            *_few_shot,
+            {"role": "user", "content": question},
+        ],
         "stream": False,
         "think": False,
         "options": {
-            "temperature": 0.38,   # low = coherent for 1.7b model
-            "num_predict": 120,    # short punchy chat
-            "num_ctx": 3072,
+            "temperature": 0.38,
+            "num_predict": 100,
+            "num_ctx": 2048,
             "top_p": 0.85,
             "top_k": 35,
             "repeat_penalty": 1.18,
@@ -13328,7 +13574,7 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
         try:
             payload = dict(base_payload)
             if attempt > 0:
-                payload["options"]["temperature"] = 0.52  # slightly higher on retry
+                payload["options"]["temperature"] = 0.50
             timeout = aiohttp.ClientTimeout(total=GROUP_AI_TIMEOUT_SECONDS)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(url, json=payload) as resp:
@@ -13340,21 +13586,35 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
                             if chat_id and _is_repetitive(chat_id, cleaned):
                                 log_ai_response(f"REPETITIVE_SKIPPED gid={chat_id}", raw, cleaned)
                                 if attempt == 0:
-                                    continue  # try with higher temp
-                                return None
-                            intent_str = intent_info.get('intent', 'general')
-                            log_ai_response(f"intent={intent_str} attempt={attempt} gid={chat_id} txt={user_text[:55]!r}", raw, cleaned)
+                                    continue
+                                # Fall back to template on repetition
+                                tmpl = _get_template_response(intent, user_text)
+                                return tmpl
+                            log_ai_response(f"QWEN3 intent={intent} attempt={attempt} gid={chat_id} txt={user_text[:40]!r}", raw, cleaned)
                             if chat_id:
                                 _record_bot_output(chat_id, cleaned)
                             return cleaned
                         else:
                             log_ai_response(f"LOW_QUALITY attempt={attempt} gid={chat_id}", raw, cleaned or "")
+                            if attempt == 1:
+                                # Last resort: return template if available
+                                tmpl = _get_template_response(intent, user_text)
+                                if tmpl:
+                                    return tmpl
         except asyncio.TimeoutError:
             log_ai_response(f"TIMEOUT attempt={attempt} gid={chat_id}", "", "")
+            # On timeout, immediately use template (don't wait for retry)
+            tmpl = _get_template_response(intent, user_text)
+            if tmpl and not (chat_id and _is_repetitive(chat_id, tmpl)):
+                log_ai_response(f"TIMEOUT_TEMPLATE intent={intent} gid={chat_id}", "", tmpl)
+                if chat_id:
+                    _record_bot_output(chat_id, tmpl)
+                return tmpl
+            break  # don't retry after timeout
         except Exception as e:
             if attempt == 1:
                 slog(f"❌ Qwen3 natural error: {e}")
-        await asyncio.sleep(1.0 * (attempt + 1))
+        await asyncio.sleep(0.5)
     return None
 
 # Back-compat thin wrapper (used by older internal paths if any)
@@ -13466,16 +13726,8 @@ PM_FUNNEL_COOLDOWN = 43200       # 12h between funnel attempts per user
 # {(group_id, user_id): {"count": int, "last_funnel": float}}
 _user_conv_tracker: Dict[tuple, dict] = defaultdict(lambda: {"count": 0, "last_funnel": 0.0})
 
-# PM invitation lines — chosen randomly for variety
-_PM_INVITE_LINES = [
-    "راستش اینجا شلوغه، اگه میخوای بیشتر صحبت کنیم پیامم بده",
-    "این قضیه بهتره خصوصی حلش کنیم، پیام بده",
-    "اگه جزئیات بیشتری داری، بیا پیام خصوصی — اینجا نمیشه راحت صحبت کرد",
-    "یه چیزایی هست که بهتره خصوصی بگم، پیامم بده",
-    "اگه دوست داری کمک کنم، پیام بده — اینجا نمیشه همه چیز رو گفت",
-    "جالبه موضوعت، پیامم بده بیشتر حرف بزنیم",
-    "اگه سوالت ادامه داره، راحت‌تره تو پیام صحبت کنیم",
-]
+# PM invitation lines — alias to template pool (single source of truth)
+_PM_INVITE_LINES = TEMPLATE_RESPONSES['pm_invite']
 
 def _track_user_exchange(group_id: int, user_id: int) -> int:
     """Increment exchange count and return new count."""
@@ -13499,29 +13751,7 @@ def _mark_funnel_sent(group_id: int, user_id: int):
     _user_conv_tracker[key]["count"] = 0  # reset so funnel doesn't repeat every reply
 
 async def generate_pm_funnel_msg(recent_ctx: str, exchange_count: int = 3) -> str:
-    """Generate a natural PM invitation using Qwen3."""
-    ctx_text = (recent_ctx[-350:] if recent_ctx else "مکالمه عمومی")
-    prompt = PM_FUNNEL_PROMPT.format(context=ctx_text, count=exchange_count)
-    try:
-        url = f"{QWEN3_BASE_URL}/api/chat"
-        payload = {
-            "model": QWEN3_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "stream": False,
-            "think": False,
-            "options": {"temperature": 0.42, "num_predict": 70, "top_p": 0.85, "repeat_penalty": 1.18},
-        }
-        timeout = aiohttp.ClientTimeout(total=18)
-        async with aiohttp.ClientSession(timeout=timeout) as sess:
-            async with sess.post(url, json=payload) as r:
-                if r.status == 200:
-                    data = await r.json(content_type=None)
-                    raw = (data.get('message', {}).get('content') or '').strip()
-                    cleaned = _clean_natural(raw)
-                    if cleaned and len(cleaned) > 10 and is_high_quality_natural(cleaned):
-                        return cleaned
-    except Exception:
-        pass
+    """Generate a natural PM invitation. Uses template pool (instant, reliable)."""
     return random.choice(_PM_INVITE_LINES)
 
 
