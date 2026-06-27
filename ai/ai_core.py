@@ -711,7 +711,7 @@ def decide_engagement(user_text: str, recent_ctx: str = "", group_notes: str = "
     if 'مهاجرت' in txt or 'ترکیه' in txt or 'دبی' in txt:
         style = "attract_value"
 
-    should = score >= 2.8 or ('?' in txt or '؟' in txt) or random.random() < 0.12
+    should = score >= 2.5 or ('?' in txt or '؟' in txt) or any(k in txt for k in ['ریتالین', 'اوزمپیک', 'ارسال', 'پرداخت', 'تتر', 'trc20']) or random.random() < 0.15
     addon = ""
     if should:
         fs = get_few_shots_for_prompt(user_text)
