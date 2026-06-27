@@ -706,6 +706,44 @@ def get_few_shots_for_prompt(query: str, k: int = 2) -> str:
     scored.sort(reverse=True)
     return "\n".join([s[1] for s in scored[:k]]) if scored else ""
 
+def generate_natural_reply_local(user_text: str, intent: str = "", retrieved: str = "", style: str = "general_engage") -> str:
+    """Strong local natural reply generator using composer + few-shots + peer voice.
+    This is fast, always grounded, and produces human-like output without waiting for slow LLM.
+    Used as primary for group replies + safety net.
+    """
+    base = compose_knowledge_for_prompt(user_text, intent) or retrieved or ""
+    few = get_few_shots_for_prompt(user_text, k=1)
+
+    # Build a short natural peer response
+    parts = []
+    if base:
+        # pick first useful line and make it conversational
+        line = base.split("\n")[0].strip()
+        if line:
+            line = line.replace("اطلاعات عمومی", "").strip()
+            if "من خودم" not in line and random.random() < 0.7:
+                line = line + " من خودم گرفتم موجود بود."
+            parts.append(line)
+
+    if few and random.random() < 0.4:
+        # inject one example tone
+        ex = few.split("\n")[-1] if "\n" in few else few
+        parts.append(ex[:120])
+
+    if not parts:
+        parts.append("آره، تجربه منم شبیه همین بود. دقیق‌تر بگو ببینم چی مدنظرت هست؟")
+
+    reply = " ".join(parts)
+    reply = re.sub(r"\s+", " ", reply).strip()
+
+    # Keep it short and natural (1-3 sentences)
+    if len(reply) > 160:
+        reply = reply[:157] + "..."
+
+    # Anti robotic
+    reply = re.sub(r"البته|حتما|قطعا|۱۰۰٪", "", reply)
+    return reply[:180]
+
 def decide_engagement(user_text: str, recent_ctx: str = "", group_notes: str = "") -> dict:
     """Return decision for smart random engagement + style. Stronger for natural PM funnel + intelligent interactions."""
     txt = (user_text or "").lower()

@@ -547,8 +547,8 @@ QWEN3_BASE_URL = os.environ.get('QWEN3_BASE_URL', 'http://qwen3.railway.internal
 QWEN3_MODEL = os.environ.get('QWEN3_MODEL', 'qwen3:1.7b')
 
 # محدودیت: حداکثر 1 پاسخ AI در هر گروه در این بازه زمانی (ثانیه)
-GROUP_AI_COOLDOWN_SECONDS = 90    # 90 ثانیه بین هر پاسخ در هر گروه
-GROUP_AI_TIMEOUT_SECONDS = 40     # حداکثر زمان انتظار برای پاسخ Qwen3
+GROUP_AI_COOLDOWN_SECONDS = 75    # بین پاسخ‌ها در هر گروه
+GROUP_AI_TIMEOUT_SECONDS = 65     # زمان بیشتر برای مدل کند CPU
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚠️⚠️⚠️ سوییچ‌های عملیات پرریسک (HIGH-RISK OPERATIONS SWITCHES) ⚠️⚠️⚠️
@@ -13545,10 +13545,10 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
 
     # 3. Call model — use think + better params for max intelligence on Qwen3 (web3test proven)
     # use_think for complex / high value to get professional reasoning trace
-    use_think = high_value or len(user_text) > 35 or any(w in (user_text or '').lower() for w in ['چطور', 'چگونه', 'مشکل', 'تجربه', 'عوارض', 'ارسال', 'پرداخت', 'دوز'])
-    temp = 0.38 if not use_think else 0.32
-    max_tokens = 160 if not use_think else 200
-    num_ctx = 4096
+    use_think = high_value and len(user_text) > 40   # only for truly valuable cases
+    temp = 0.40
+    max_tokens = 90 if not high_value else 130   # short for fast natural replies
+    num_ctx = 3072
 
     raw = ""
     if _qwen3_client is not None:
@@ -13582,40 +13582,46 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
     except Exception:
         pass
 
-    # 5. Quality gate — stronger grounding fallback. NEVER return empty/low for engagement.
-    # Prioritize real grounded answers from composer.
+    # 5. Quality gate — use strong local natural generator as primary/fast path.
+    # LLM is tried for high_value but slow model means we must be fast and always good.
     if (not cleaned or len(cleaned.strip()) < 8 or not is_high_quality_natural(cleaned)):
-        log_ai_response(f"gate_fail intent={intent} strategy={'composer_fallback' if retrieved else 'weak'}", raw[:100] if raw else '', cleaned[:60] if cleaned else '')
-        # Strong grounded fallback using compose + natural human phrasing
+        log_ai_response(f"using_fast_local intent={intent} gid={chat_id}", raw[:60] if raw else '', "")
+        try:
+            if USE_AI_CORE and 'generate_natural_reply_local' in dir():
+                from ai.ai_core import generate_natural_reply_local as _fast_local
+            else:
+                _fast_local = None
+        except:
+            _fast_local = None
+
+        if _fast_local:
+            fast = _fast_local(user_text, intent, retrieved or "", "real_answer" if high_value else "general_engage")
+            if fast and is_high_quality_natural(fast):
+                try:
+                    if chat_id: _record_bot_output(chat_id, fast)
+                except: pass
+                return fast
+
+        # Strong composer based
         grounded = ""
         if USE_AI_CORE and _core_compose:
-            try:
-                grounded = _core_compose(user_text, intent) or ""
-            except Exception:
-                grounded = retrieved or ""
+            try: grounded = _core_compose(user_text, intent) or ""
+            except: grounded = retrieved or ""
         else:
             grounded = retrieved or ""
+
         if grounded:
-            # Turn grounded knowledge into 1-2 natural peer sentences
-            lines = [ln.strip() for ln in grounded.split('\n') if 12 < len(ln.strip()) < 220]
+            lines = [ln.strip() for ln in grounded.split('\n') if 12 < len(ln.strip()) < 180]
             if lines:
                 pick = lines[0]
-                # Make it feel like real experience comment
                 natural = pick
                 if not any(v in natural for v in ['می‌دونم', 'برام', 'معمولاً', 'راستش', 'گرفتم']):
-                    natural = natural.replace(':', ' — ').strip()
-                    natural = "معمولاً " + natural[0].lower() + natural[1:] if natural else ""
-                if 15 < len(natural) < 220 and is_high_quality_natural(natural):
-                    log_ai_response(f"composer_fallback intent={intent} gid={chat_id}", pick[:80], natural)
-                    try:
-                        if chat_id: _record_bot_output(chat_id, natural)
-                    except: pass
+                    natural = "معمولاً " + natural[0].lower() + natural[1:]
+                if 12 < len(natural) < 180 and is_high_quality_natural(natural):
                     return natural
-        # Last resort: very short natural peer line (still better than silence/nonsense)
-        safe = "آره، تجربه منم شبیه همین بود. دقیق‌تر بگو ببینم چی مدنظرت هست؟"
-        if is_high_quality_natural(safe):
-            return safe
-        return None
+
+        safe = "آره تجربه منم شبیه همین بود. دقیق بگو ببینم."
+        return safe if is_high_quality_natural(safe) else None
 
     # Repetition guard
     rep_fn = _core_is_repeated if (USE_AI_CORE and _core_is_repeated) else is_repeated_response
