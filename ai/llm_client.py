@@ -38,9 +38,9 @@ class Qwen3Client:
         ).rstrip('/')
         self.model = os.getenv('QWEN3_MODEL', os.getenv('OLLAMA_MODEL', 'qwen3:1.7b'))
         self.timeout = float(os.getenv('QWEN3_TIMEOUT', '45'))
-        self.default_max_tokens = int(os.getenv('QWEN3_MAX_TOKENS', '180'))
-        self.default_temperature = float(os.getenv('QWEN3_TEMPERATURE', '0.38'))
-        self.default_num_ctx = int(os.getenv('QWEN3_NUM_CTX', '4096'))
+        self.default_max_tokens = int(os.getenv('QWEN3_MAX_TOKENS', '200'))
+        self.default_temperature = float(os.getenv('QWEN3_TEMPERATURE', '0.25'))
+        self.default_num_ctx = int(os.getenv('QWEN3_NUM_CTX', '2048'))
 
     async def is_available(self) -> bool:
         try:
@@ -75,9 +75,9 @@ class Qwen3Client:
                 "temperature": temperature if temperature is not None else self.default_temperature,
                 "num_predict": max_tokens or self.default_max_tokens,
                 "num_ctx": num_ctx or self.default_num_ctx,
-                "top_p": 0.85,
-                "top_k": 38,
-                "repeat_penalty": 1.18,
+                "top_p": 0.75,
+                "top_k": 25,
+                "repeat_penalty": 1.20,
                 "num_thread": int(os.getenv('QWEN3_NUM_THREAD', '4')),
             },
         }

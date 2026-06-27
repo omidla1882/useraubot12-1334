@@ -13161,42 +13161,37 @@ def retrieve_knowledge(query: str, intent: str = "") -> str:
 # Stronger system prompt modeled directly after the professional one that works well with Qwen3 in web3test.
 # Adapted for "experienced casual group peer" persona (not official support agent).
 GROUP_SYSTEM_PROMPT = (
-    "تو یک عضو واقعی باتجربه این گروه تلگرامی هستی (ایرانی حدود ۳۰ ساله، کمک‌کننده و صادق). نه ربات، نه فروشنده.\n\n"
-    "دانش پایه (فقط وقتی دقیقاً به درد می‌خورد استفاده کن، مثل تجربه شخصی):\n"
-    "سایت: medpharmaweb.com — دارو و مکمل اورجینال اروپایی/آمریکایی. پرداخت با ۸ ارز (BTC, ETH, USDT روی TRC20 کم‌کارمزد، TRX, BNB, TON, SOL, DOGE). ارسال سریع به تهران، استانبول، دبی، بغداد، تورنتو (معمولاً زیر ۴-۸ ساعت بعد تأیید) و بقیه تا ۲۴ ساعت. بسته محرمانه.\n"
-    "اطلاعات دارویی فقط عمومی (کاربرد کلی، دسته، نگهداری ساده). هیچ‌وقت دوز شخصی، تشخیص یا توصیه برای یک نفر خاص نده. همیشه بگو «این اطلاعات عمومی است، با پزشک مشورت کن».\n\n"
-    "سبک پاسخ (حتماً اینطوری باش تا طبیعی و حرفه‌ای به نظر برسی و مخاطب جذب بشه):\n"
-    "- کوتاه و محاوره واقعی: ۱ تا ۴ جمله روان. مستقیم برو سر اصل. از کلمات واقعی استفاده کن: آره، می‌دونم، تجربه‌ام این بود، راستی، معمولاً، برام هم همین‌طور بود.\n"
-    "- بدون لیست، شماره، «البته»، «حتماً»، شعار تبلیغاتی، تکرار.\n"
-    "- اگر دقیق نمی‌دونی بگو «دقیق نمی‌دونم» و یک سوال سبک یا نکته کوچک برگردان.\n"
-    "- گاهی (نه همیشه) یک نکته واقعی کوتاه و مفید از «تجربه خودت» بگو اگر دقیقاً کمک کند (مثل «TRC20 برام برای استانبول سریع و کم‌کارمزد بود» یا «به دبی برام زیر ۶ ساعت اومد، محرمانه»).\n"
-    "- وقتی حرف خرید/دارو می‌شود، خیلی طبیعی بگو مثلاً «من از همون سایت گرفتم، اورجینال بود» — بدون فشار فروش.\n"
-    "- هدف: مکالمه واقعی که اعتماد و کنجکاوی ایجاد کند و کاربر خودش بخواهد خصوصی ادامه دهد.\n"
-    "- اگر پرسید رباتی؟ بگو «نه بابا آدمم تو گروه» و موضوع را ادامه بده.\n\n"
-    "قانون: فقط از دانش واقعی و زمینه استفاده کن. پاسخ باید دقیقاً مثل حرف زدن یک عضو باتجربه و کمک‌کننده گروه باشد."
+    "تو یک ایرانی ۳۰ ساله‌ای و عضو واقعی این گروه تلگرامی هستی. نه ربات، نه فروشنده — یک آدم باتجربه.\n\n"
+    "قانون پاسخ:\n"
+    "• ۱ تا ۳ جمله کوتاه محاوره‌ای — مثل صحبت با دوست\n"
+    "• از این کلمات استفاده کن: آره، می‌دونم، برام هم همین‌طور بود، معمولاً، راستش\n"
+    "• ممنوع: لیست، شماره، «البته»، «حتماً»، پاراگراف بلند، تکرار\n"
+    "• اگه نمی‌دونی: «دقیق نمی‌دونم» + یه سوال کوتاه برگردون\n"
+    "• درباره دارو/خرید: «من از یه سایت خارجی گرفتم، سریع اومد» — طبیعی، بدون فشار\n"
+    "• درباره پرداخت: «TRC20 برام کارمزد کم داشت، سریع تأیید شد»\n"
+    "• اگه پرسید رباتی؟ بگو: «نه بابا آدمم» و ادامه بده\n\n"
+    "نمونه خوب: «آره ریتالین اورجینال پیدا کردن سخته، من از یه سایت اروپایی گرفتم خوب بود»\n"
+    "نمونه بد: «البته! این یک موضوع مهم است. ۱. ابتدا باید...»\n\n"
+    "هدف: مکالمه‌ای که کاربر خودش بخواد ادامه بده و به پیام خصوصی کشیده بشه."
 )
 
 def build_group_messages(user_text: str, retrieved: str, recent_ctx: list, exchange_lines: list, notes: str, mem_ctx: str) -> list:
-    """Build messages list like the professional web3test style for better Qwen3 results."""
-    messages = [
-        {"role": "system", "content": GROUP_SYSTEM_PROMPT},
-    ]
+    """Build lean messages list — max 2 system messages to avoid confusing the 1.7b model."""
+    messages = [{"role": "system", "content": GROUP_SYSTEM_PROMPT}]
+
+    # Combine all context into one secondary system message to stay lean
+    ctx_parts = []
     if retrieved:
-        messages.append({"role": "system", "content": f"اطلاعات مرتبط و واقعی (استفاده کن اگر دقیقاً می‌خورد):\n{retrieved[:600]}"})
-    if notes:
-        messages.append({"role": "system", "content": f"نکته‌های گروه: {notes[:200]}"})
-    if mem_ctx:
-        messages.append({"role": "system", "content": f"سابقه کاربر: {mem_ctx[:150]}"})
-
-    # Add recent context lightly
-    ctx_text = "\n".join(str(c) for c in (recent_ctx or [])[-3:] if c)[:350]
-    if ctx_text:
-        messages.append({"role": "system", "content": f"پیام‌های اخیر گروه:\n{ctx_text}"})
-
-    # Recent exchange (short)
+        ctx_parts.append(f"اطلاعات مرتبط:\n{retrieved[:350]}")
     if exchange_lines:
-        hist = "\n".join(exchange_lines[-3:])
-        messages.append({"role": "system", "content": f"مکالمه اخیر ما:\n{hist}"})
+        ctx_parts.append("مکالمه اخیر:\n" + "\n".join(exchange_lines[-2:]))
+    elif recent_ctx:
+        ctx_text = "\n".join(str(c)[:80] for c in recent_ctx[-2:] if c)
+        if ctx_text:
+            ctx_parts.append(f"پیام‌های اخیر:\n{ctx_text}")
+
+    if ctx_parts:
+        messages.append({"role": "system", "content": "\n\n".join(ctx_parts)[:500]})
 
     messages.append({"role": "user", "content": user_text})
     return messages
@@ -13508,38 +13503,26 @@ async def handle_owner_command(event):
 
 async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int = None, *, high_value: bool = False) -> Optional[str]:
     """
-    MORE COMPLETE pure intelligent pipeline (always hits model for "very intelligent").
-    Requests properly directed (ModelDirector).
-    Sometimes inserts relevant natural content (for attraction + real value).
-    Gives real grounded answers.
-    Full pipeline: classify→plan→retrieve+compose→directed prompt→client(think when useful)→critique.
-    NO template shortcuts. Always model-directed + processed.
+    Lean, high-quality pipeline for Qwen3 1.7b on CPU.
+    Mirrors the web3test approach: small system prompt + clean context + think=False + temp=0.25.
+    Full pipeline: classify → retrieve → build (max 2 system msgs) → call model → clean → gate.
     """
-    # 1. Always professional classify + plan (core)
-    if USE_AI_CORE and _core_classify and _core_retrieve and _core_plan:
+    # 1. Classify intent + retrieve grounded knowledge
+    if USE_AI_CORE and _core_classify and _core_retrieve:
         intent_info = _core_classify(user_text)
-        base_ret = _core_retrieve(user_text, intent_info.get('intent', ''))
-        # use full professional composer for grounded real answers
+        intent = intent_info.get('intent', 'unknown')
         try:
-            retrieved = _core_compose(user_text, intent_info.get('intent', '')) or base_ret
-        except:
-            retrieved = base_ret
-        if not retrieved:
-            retrieved = base_ret
-        plan = _core_plan(intent_info, bool(retrieved), len(group_exchange_history.get(chat_id, [])) > 0, user_text)
+            retrieved = (_core_compose(user_text, intent) if _core_compose else None) or _core_retrieve(user_text, intent)
+        except Exception:
+            retrieved = _core_retrieve(user_text, intent)
     else:
         intent_info = classify_intent(user_text)
         intent = intent_info.get('intent', 'unknown')
-        base_ret = retrieve_knowledge(user_text, intent)
-        retrieved = base_ret
-        plan = plan_response(intent_info, bool(retrieved), len(group_exchange_history.get(chat_id, [])) > 0, user_text)
+        retrieved = retrieve_knowledge(user_text, intent)
 
-    intent = intent_info.get('intent', 'unknown')
-
-    # 2. Build messages using professional multi-system style (inspired by web3test smart_chat_service)
-    exchange_lines = [f"{r}: {t[:100]}" for r, t in list(group_exchange_history.get(chat_id, []))[-4:]]
+    # 2. Build lean messages (max 2 system messages — web3test proven approach)
+    exchange_lines = [f"{r}: {t[:80]}" for r, t in list(group_exchange_history.get(chat_id, []))[-3:]]
     notes = get_group_notes(chat_id) if chat_id else ""
-    mem_ctx = get_user_context(chat_id, 0) if chat_id else ""
 
     messages = build_group_messages(
         user_text=user_text,
@@ -13547,115 +13530,81 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
         recent_ctx=recent_ctx or [],
         exchange_lines=exchange_lines,
         notes=notes,
-        mem_ctx=mem_ctx,
+        mem_ctx="",  # skip mem_ctx to reduce noise on small model
     )
 
-    # 3. Properly DIRECT the request to model (intelligence + attraction + real)
-    dir_obj = _director if (USE_AI_CORE and _director) else None
-    cnt_obj = _content_intel if (USE_AI_CORE and _content_intel) else None
-
-    if dir_obj:
-        directed = dir_obj.direct(intent, plan, user_text, bool(retrieved), bool(exchange_lines))
-    else:
-        directed = {'system_addon': '', 'use_think': high_value or bool(retrieved), 'temperature': 0.37, 'max_tokens': 130, 'variant': 'general_engage'}
-
-    # Add director guidance as a light system note if present (do not pollute main system)
-    if directed.get('system_addon'):
-        messages.insert(-1, {"role": "system", "content": directed['system_addon'][:200]})
-
-    # 4. Rarely insert relevant content (low probability for naturalness)
-    insert_p = 0.0
-    if cnt_obj:
-        insert_p = cnt_obj.should_insert(intent, user_text, len(exchange_lines))
-    else:
-        insert_p = 0.12 if high_value or bool(retrieved) else 0.05
-    if random.random() < insert_p:
-        snip = ""
-        if cnt_obj:
-            snip = cnt_obj.get_relevant_snippet(user_text, intent)
-        if snip:
-            messages.insert(-1, {"role": "system", "content": f"اگر دقیقاً مرتبط بود یک نکته کوتاه واقعی مثل تجربه بگو: {snip[:120]}"})
-            log_ai_response(f"RELEVANT_CONTENT gid={chat_id} p={insert_p:.2f}", snip, "")
-
-    # 5. Process by model (Qwen3Client with think for very intelligent real answers)
-    use_think = directed.get('use_think', high_value or bool(retrieved) or len(user_text) > 25)
-    temp = directed.get('temperature', 0.36)
-    mt = directed.get('max_tokens', 120)  # keep short for small model coherence
+    # 3. Call model — think=False, temp=0.25 mirrors web3test (proven for Persian coherence)
+    # Only enable thinking for complex explicit questions with enough context
+    use_think = (
+        high_value and
+        len(user_text) > 50 and
+        any(w in user_text.lower() for w in ['چطور', 'چگونه', 'مشکل', 'تجربه', 'پرداخت', 'ارسال', 'عوارض'])
+    )
+    temp = 0.25 if not use_think else 0.22
+    max_tokens = 180
 
     raw = ""
     if _qwen3_client is not None:
         try:
-            res = await _qwen3_client.chat(messages, max_tokens=mt, temperature=temp, use_think=use_think)
+            res = await _qwen3_client.chat(messages, max_tokens=max_tokens, temperature=temp, use_think=use_think, num_ctx=2048)
             raw = res.get("raw") or res.get("content") or ""
-            if res.get("thinking"):
-                log_ai_response(f"THINK variant={directed.get('variant')} intent={intent} gid={chat_id}", res["thinking"][:200], "")
         except Exception as e:
             slog(f"qwen client err: {e}")
 
-    # Direct fallback if needed
+    # Direct HTTP fallback
     if not raw:
         try:
-            timeout = aiohttp.ClientTimeout(total=30)
+            timeout = aiohttp.ClientTimeout(total=35)
             async with aiohttp.ClientSession(timeout=timeout) as s:
-                pp = {"model": QWEN3_MODEL, "messages": messages, "stream": False, "think": use_think, "options": {"temperature": temp, "num_predict": mt, "num_ctx": 3072, "repeat_penalty": 1.2}}
+                pp = {
+                    "model": QWEN3_MODEL, "messages": messages, "stream": False, "think": False,
+                    "options": {"temperature": 0.25, "num_predict": 180, "num_ctx": 2048,
+                                "repeat_penalty": 1.20, "top_p": 0.75, "top_k": 25}
+                }
                 async with s.post(f"{QWEN3_BASE_URL}/api/chat", json=pp) as rr:
                     if rr.status == 200:
                         dd = await rr.json(content_type=None)
-                        raw = (dd.get('message',{}).get('content') or '').strip()
-        except: pass
+                        raw = (dd.get('message', {}).get('content') or '').strip()
+        except Exception:
+            pass
 
+    # 4. Clean + repair
     cleaned = _clean_natural(raw)
-
-    # Strong repair + sanitize (ported ideas from web3test model_guard + response_builder)
     try:
         cleaned = _repair_group_output(cleaned)
-    except:
+    except Exception:
         pass
 
-    # Quality gate — very strict now
-    weak = False
-    try:
-        if USE_AI_CORE:
-            from ai.ai_core import is_weak_llm_output as _is_weak
-            weak = _is_weak(cleaned)
-    except:
-        pass
+    # 5. Quality gate — accept more, reject only genuine garbage
+    if not cleaned or len(cleaned.strip()) < 8:
+        log_ai_response(f"gate_empty intent={intent} gid={chat_id}", raw[:80], "")
+        return None
 
-    rep = _core_is_repeated(cleaned, group_exchange_history.get(chat_id, [])) if (USE_AI_CORE and _core_is_repeated) else is_repeated_response(cleaned, group_exchange_history.get(chat_id, []))
-
-    if not cleaned or not is_high_quality_natural(cleaned) or weak or rep or len(cleaned) < 10:
-        log_ai_response(f"gate_fail intent={intent} gid={chat_id}", raw[:150], cleaned or "")
-        # Strong safe natural fallback from real composer output
+    if not is_high_quality_natural(cleaned):
+        log_ai_response(f"gate_quality intent={intent} gid={chat_id}", raw[:120], cleaned[:60] if cleaned else "")
+        # Try 1 line from retrieved knowledge as safe fallback
         if retrieved:
-            for ln in retrieved.split('\n')[:3]:
+            for ln in retrieved.split('\n')[:2]:
                 ln = ln.strip()
-                if 12 < len(ln) < 170 and is_high_quality_natural(ln):
-                    if 'ارسال' in ln or 'پرداخت' in ln or 'ریتالین' in ln.lower() or 'اوزمپیک' in ln.lower():
-                        return ln
+                if 15 < len(ln) < 160 and is_high_quality_natural(ln):
                     return ln
         return None
 
-    # Light second pass for polish if robotic
-    if any(b in cleaned for b in ['۱.', '•', 'البته', 'حتما']):
-        try:
-            if _qwen3_client:
-                pr = await _qwen3_client.chat([{"role":"user","content":"این متن را مثل حرف طبیعی یک عضو با تجربه گروه بازنویسی کن. کوتاه، محاوره، بدون لیست و شعار. فقط متن نهایی:\n" + cleaned}], max_tokens=100, temperature=0.28, use_think=False)
-                pc = _clean_natural(pr.get("content",""))
-                if pc and is_high_quality_natural(pc) and not _core_is_repeated(pc, group_exchange_history.get(chat_id, [])):
-                    cleaned = pc
-        except:
-            pass
+    # Repetition guard
+    rep_fn = _core_is_repeated if (USE_AI_CORE and _core_is_repeated) else is_repeated_response
+    if rep_fn(cleaned, list(group_exchange_history.get(chat_id, []))):
+        log_ai_response(f"gate_rep intent={intent} gid={chat_id}", raw[:80], cleaned[:60])
+        return None
 
-    # Success path: memory + log
+    # 6. Success — record and return
     try:
         if chat_id:
-            topic = (user_text[:55] if user_text else "general")
-            update_user_memory(chat_id, 0, topic)
-    except:
+            update_user_memory(chat_id, 0, user_text[:50])
+            _record_bot_output(chat_id, cleaned)
+    except Exception:
         pass
 
-    log_ai_response(f"INTELLIGENT_FULL variant={directed.get('variant')} think={use_think} gid={chat_id}", raw[:180], cleaned)
-    if chat_id: _record_bot_output(chat_id, cleaned)
+    log_ai_response(f"OK intent={intent} think={use_think} gid={chat_id}", raw[:120], cleaned)
     return cleaned
 
 # Back-compat thin wrapper (used by older internal paths if any)
@@ -13811,26 +13760,30 @@ _proactive_day = date.today()
 # Natural conversation starters — posted proactively to initiate conversations
 # Mix of pharma, crypto, migration, and general topics to seem human
 CONVERSATION_STARTERS = [
-    # Pharma / product topics
-    "داروهای ADHD این روزا واقعاً کمیابن. کسی تجربه پیدا کردن داره؟",
-    "شنیدم اوزمپیک تو بعضی کشورا کمیاب شده. شما هم همین مشکل دارین؟",
-    "یه دوست داشت میگفت مودافینیل کمک خوبیه برای تمرکز. شما تجربه دارین؟",
-    "کسی میدونه ریتالین اورجینال از کجا میشه گرفت؟",
-    "برای دارو از خارج، کدوم روش امن‌تره به نظرتون؟",
-    # Crypto / payment
-    "TRC20 برای انتقال تتر به خارج واقعاً کارمزد کمی داره. کسی تجربه داره؟",
-    "نوبیتکس vs والکس — کدوم رو بیشتر استفاده میکنید؟",
-    "بیتکوین این روزا خوبه یا USDT بهتره نگه داشت؟",
+    # Pharma — natural peer questions
+    "داروهای ADHD این روزا خیلی کمیابن. کسی تجربه داره از کجا بگیره؟",
+    "شنیدم اوزمپیک تو ایران اصلی پیدا نمیشه. شما هم این مشکل داشتین؟",
+    "یه دوست داره مودافینیل میخواد برای کار، کسی راهنمایی میکنه؟",
+    "ریتالین اورجینال اروپایی تجربه دارین؟ با ایرانی فرق داره؟",
+    "برای دارو از خارج کدوم روش به نظرتون امن‌تره؟",
+    "مونجارو برای کاهش وزن تجربه داره کسی اینجا؟",
+    "انسولین خارجی با ایرانی از نظر کیفیت فرق میکنه؟",
+    # Crypto payment
+    "TRC20 کارمزد خیلی کمیه برای ارسال تتر. کسی تجربه داره؟",
+    "نوبیتکس یا والکس — کدومو ترجیح میدید؟",
+    "USDT یا BNB، کدوم برای انتقال به خارج راحت‌تره؟",
+    "صرافی‌های ایرانی این روزا محدودیت دارن؟ تجربه دارین؟",
     # Migration
-    "مهاجرت ترکیه این روزا هنوز آسون‌ترین گزینه‌ست یا گرون شده خیلی؟",
-    "کسی تجربه اقامت دبی داره؟ هزینه‌ها چطوره؟",
-    "اکسپرس اینتری کانادا این روزا چقدر طول میکشه؟",
-    # General engaging questions
-    "یه سوال دارم، کسی اینجا تهرانه؟",
-    "بچه‌ها اخبار جدید چیه؟",
-    "به نظرتون بهترین روش برای ارسال پول به خارج چیه الان؟",
-    "کسی تجربه خرید از سایت‌های اروپایی داره؟",
-    "راستی یه چیز بپرسم، شما چجوری از فیلتر رد میشید؟",
+    "مهاجرت ترکیه هنوز ارزش داره یا خیلی گرون شده؟",
+    "دبی برای اقامت چطوره؟ هزینه‌ها خیلی بالاست؟",
+    "اکسپرس اینتری کانادا الان چقدر انتظار داره؟",
+    "کسی تجربه زندگی در استانبول داره؟ هزینه زندگی چطوره؟",
+    # General engaging
+    "به نظرتون بهترین روش ارسال پول به خارج الان چیه؟",
+    "کسی تجربه خرید از سایت‌های اروپایی داره — گمرک مشکل نمیشه؟",
+    "سلام بچه‌ها. کسی اینجا تهرانه یا بیشتر خارجه؟",
+    "راستی یه سوال، VPN چی استفاده میکنید این روزا؟",
+    "بهترین روش انتقال ارز به ترکیه الان چیه به نظرتون؟",
 ]
 
 # Track last starter time per group to avoid posting too often
