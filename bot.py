@@ -376,6 +376,32 @@ def _clean_natural(text: str) -> str:
         lines = lines[:8]
     return _persian_normalize('\n'.join(lines))
 
+
+def _repair_group_output(text: str) -> str:
+    """Repair common small-model hallucinations for group context (adapted from web3test model_guard)."""
+    if not text:
+        return text
+    # Fix brand hallucinations
+    text = text.replace('مدفارماوب', 'فارماوب')
+    text = _re.sub(r'medpharmaweb|imed|sara', 'فارماوب', text, flags=_re.I)
+    # Fix "only tron" hallucination
+    text = _re.sub(r'فقط\s*ترون[^.\n]*', '۸ ارز دیجیتال قبول می‌کنیم (از جمله USDT روی TRC20)', text, flags=_re.I)
+    text = _re.sub(r'only\s*tron[^.\n]*', 'We accept 8 cryptos (incl. USDT on TRC20)', text, flags=_re.I)
+    # Remove repetitive lines
+    lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
+    seen = set()
+    clean_lines = []
+    for ln in lines:
+        norm = ln[:60].lower()
+        if norm not in seen:
+            seen.add(norm)
+            clean_lines.append(ln)
+    text = '\n'.join(clean_lines)
+    if len(text) > 650:
+        text = text[:650].rsplit(' ', 1)[0] + '…'
+    return text.strip()
+
+
 # --- AI response logger (for verification) ---
 import os as _os
 _os.makedirs("remember/ai_logs", exist_ok=True)
@@ -13222,20 +13248,50 @@ def retrieve_knowledge(query: str, intent: str = "") -> str:
         if len(out) >= 3: break
     return "\n".join(out)
 
-NATURAL_GROUP_SYSTEM_PROMPT = (
-    "تو یه ایرانی واقعی حدود ۳۰ ساله‌ای که تو این گروه تلگرامی عضوی. آدم عادی با تجربه، نه ربات و نه فروشنده.\n\n"
-    "سبک (کاملاً طبیعی و حرفه‌ای برای جذب مخاطب):\n"
-    "- محاوره واقعی: میگم، میدونم، آره، راستی، به نظرم، تجربه‌ام این بود.\n"
-    "- ۱ تا ۴ جمله طبیعی و روان. گاهی کوتاه، گاهی با یه نکته واقعی مفید وقتی به درد می‌خوره.\n"
-    "- بدون لیست، شماره، رسمی‌بازی، «البته»، «حتماً»، شعار تبلیغاتی.\n"
-    "- مستقیم، صادق و باارزش. اگه چیزی دقیق نمی‌دونی بگو «دقیق نمی‌دونم».\n"
-    "- گاهی (نه همیشه) یه نکته واقعی کوتاه و مفید از تجربه‌ات بگنجان (مثل روش پرداخت TRC20، زمان ارسال واقعی، یا یه نکته کوچیک در مورد دارو) — فقط اگر واقعاً کمک کنه و طبیعی باشه. مثل حرف زدن با دوست.\n"
-    "- اگه حرف خرید/دارو شد: طبیعی بگو «من از مدفارماوب گرفتم اورجینال بود» یا مشابه، بدون فشار فروش.\n"
-    "- کنجکاو و جذاب باش: سوال سبک برگردون یا جزئیات واقعی بده که مخاطب بخواد ادامه بده یا خصوصی پیام بده.\n"
-    "- ربات؟ → «نه بابا آدمم» و موضوع رو ادامه بده یا سوال بپرس.\n\n"
-    "اطلاعات کمکی (فقط وقتی دقیقاً به درد می‌خوره استفاده کن، نه همیشه):\n{retrieved}\n\n"
-    "هدف: تعامل هوشمند، طبیعی و حرفه‌ای که اعتماد و کنجکاوی ایجاد کنه و در نهایت شانس پیام خصوصی رو بالا ببره. اول فکر کن (درونیت) با زمینه و دانش واقعی، بعد فقط جواب نهایی طبیعی بنویس."
+# Stronger system prompt modeled directly after the professional one that works well with Qwen3 in web3test.
+# Adapted for "experienced casual group peer" persona (not official support agent).
+GROUP_SYSTEM_PROMPT = (
+    "تو یک ایرانی واقعی حدود ۳۰ ساله‌ای که عضو فعال این گروه تلگرامی هستی. آدم با تجربه و کمک‌کننده، نه ربات و نه فروشنده حرفه‌ای.\n\n"
+    "دانش پایه (فقط وقتی دقیقاً مرتبط است استفاده کن):\n"
+    "سایت اصلی: medpharmaweb.com — دارو و مکمل اورجینال اروپایی/آمریکایی. پرداخت با ۸ ارز دیجیتال (BTC, ETH, USDT روی TRC20 بهترین، TRX, BNB, TON, SOL, DOGE). ارسال سریع به تهران، استانبول، دبی، بغداد، تورنتو (معمولاً زیر ۴-۸ ساعت بعد تأیید) و بقیه شهرها تا ۲۴ ساعت. بسته‌بندی کاملاً محرمانه.\n"
+    "اطلاعات دارویی عمومی مجاز است (کاربرد کلی، دسته دارویی، نکات نگهداری ساده). هرگز دوز شخصی، تشخیص، یا توصیه درمانی برای یک نفر خاص نده — همیشه بگو این اطلاعات عمومی است و باید با پزشک مشورت شود.\n\n"
+    "سبک پاسخ (حتماً رعایت کن تا طبیعی و هوشمند به نظر برسد):\n"
+    "- محاوره واقعی و کوتاه: ۱ تا ۳-۴ جمله روان. مستقیم برو سر اصل مطلب.\n"
+    "- از کلمات واقعی استفاده کن: آره، می‌دونم، تجربه‌ام این بود، راستی، به نظرم، معمولاً، برام هم همین‌طور بود.\n"
+    "- بدون لیست، شماره‌گذاری، «البته»، «حتماً»، شعار، تکرار جمله‌ها.\n"
+    "- اگر چیزی دقیق نمی‌دانی صادقانه بگو «دقیق نمی‌دونم» و یک سوال سبک برگردان.\n"
+    "- گاهی (نه هر بار) یک نکته واقعی کوتاه و مفید از «تجربه» خودت بگو اگر دقیقاً به درد بخورد (مثل «من TRC20 زدم، ۷-۸ دقیقه طول کشید» یا «به استانبول برام زیر ۶ ساعت اومد»).\n"
+    "- وقتی کاربر درباره خرید/دارو حرف می‌زند، خیلی طبیعی بگو مثلاً «من از همون سایت گرفتم، اورجینال بود» — بدون فشار فروش.\n"
+    "- هدف اصلی: مکالمه واقعی و جذاب که اعتماد ایجاد کند و کاربر خودش بخواهد خصوصی ادامه دهد.\n"
+    "- اگر پرسید «رباتی؟» بگو «نه بابا، آدمم تو گروه» و موضوع را ادامه بده.\n\n"
+    "قانون طلایی: فقط از دانش واقعی و زمینه استفاده کن. هرگز چیزی اختراع نکن. پاسخ باید مثل حرف زدن یک عضو باتجربه گروه باشد."
 )
+
+def build_group_messages(user_text: str, retrieved: str, recent_ctx: list, exchange_lines: list, notes: str, mem_ctx: str) -> list:
+    """Build messages list like the professional web3test style for better Qwen3 results."""
+    messages = [
+        {"role": "system", "content": GROUP_SYSTEM_PROMPT},
+    ]
+    if retrieved:
+        messages.append({"role": "system", "content": f"اطلاعات مرتبط و واقعی (استفاده کن اگر دقیقاً می‌خورد):\n{retrieved[:600]}"})
+    if notes:
+        messages.append({"role": "system", "content": f"نکته‌های گروه: {notes[:200]}"})
+    if mem_ctx:
+        messages.append({"role": "system", "content": f"سابقه کاربر: {mem_ctx[:150]}"})
+
+    # Add recent context lightly
+    ctx_text = "\n".join(str(c) for c in (recent_ctx or [])[-3:] if c)[:350]
+    if ctx_text:
+        messages.append({"role": "system", "content": f"پیام‌های اخیر گروه:\n{ctx_text}"})
+
+    # Recent exchange (short)
+    if exchange_lines:
+        hist = "\n".join(exchange_lines[-3:])
+        messages.append({"role": "system", "content": f"مکالمه اخیر ما:\n{hist}"})
+
+    messages.append({"role": "user", "content": user_text})
+    return messages
+
 
 # Prompt for PM-funneling (used separately, not in system prompt)
 PM_FUNNEL_PROMPT_TEMPLATE = (
@@ -13571,25 +13627,19 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
 
     intent = intent_info.get('intent', 'unknown')
 
-    # 2. Rich context + memory for real multi-turn intelligence
-    ctx_text = "\n".join(str(c) for c in (recent_ctx or [])[-4:] if c)[:380].strip() if recent_ctx else ""
-    exchange_lines = [f"{r}: {t[:110]}" for r, t in list(group_exchange_history.get(chat_id, []))[-4:]]
+    # 2. Build messages using professional multi-system style (inspired by web3test smart_chat_service)
+    exchange_lines = [f"{r}: {t[:100]}" for r, t in list(group_exchange_history.get(chat_id, []))[-4:]]
     notes = get_group_notes(chat_id) if chat_id else ""
     mem_ctx = get_user_context(chat_id, 0) if chat_id else ""
-    few = ""
-    try:
-        if USE_AI_CORE and 'get_few_shots_for_prompt' in dir(__import__('ai.ai_core', fromlist=['get_few_shots_for_prompt'])):
-            from ai.ai_core import get_few_shots_for_prompt as _fs
-            few = _fs(user_text, 2)
-    except:
-        few = ""
 
-    sys_p = NATURAL_GROUP_SYSTEM_PROMPT.format(retrieved=retrieved or "(موردی یافت نشد)")
-    ctx_blob = "\n".join(filter(None, [ctx_text, "\n".join(exchange_lines), notes, mem_ctx]))[:300]
-    if ctx_blob:
-        sys_p += "\n\n[زمینه برای پاسخ واقعی و هوشمند]:\n" + ctx_blob
-    if few:
-        sys_p += "\n\nچند مثال طبیعی موفق (سبک تقلید کن):\n" + few[:450]
+    messages = build_group_messages(
+        user_text=user_text,
+        retrieved=retrieved or "",
+        recent_ctx=recent_ctx or [],
+        exchange_lines=exchange_lines,
+        notes=notes,
+        mem_ctx=mem_ctx,
+    )
 
     # 3. Properly DIRECT the request to model (intelligence + attraction + real)
     dir_obj = _director if (USE_AI_CORE and _director) else None
@@ -13598,88 +13648,106 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
     if dir_obj:
         directed = dir_obj.direct(intent, plan, user_text, bool(retrieved), bool(exchange_lines))
     else:
-        directed = {'system_addon': '', 'use_think': high_value or bool(retrieved), 'temperature': 0.38, 'max_tokens': 150, 'variant': 'general_engage'}
+        directed = {'system_addon': '', 'use_think': high_value or bool(retrieved), 'temperature': 0.37, 'max_tokens': 130, 'variant': 'general_engage'}
 
+    # Add director guidance as a light system note if present (do not pollute main system)
     if directed.get('system_addon'):
-        sys_p += "\n\n" + directed['system_addon']
+        messages.insert(-1, {"role": "system", "content": directed['system_addon'][:200]})
 
-    # 4. Sometimes insert relevant content naturally (attract audience with real value)
+    # 4. Rarely insert relevant content (low probability for naturalness)
     insert_p = 0.0
     if cnt_obj:
         insert_p = cnt_obj.should_insert(intent, user_text, len(exchange_lines))
     else:
-        insert_p = 0.18 if high_value or bool(retrieved) else 0.08  # lowered to reduce empty/gate fail, more natural
+        insert_p = 0.12 if high_value or bool(retrieved) else 0.05
     if random.random() < insert_p:
         snip = ""
         if cnt_obj:
             snip = cnt_obj.get_relevant_snippet(user_text, intent)
         if snip:
-            sys_p += f"\n\n[اگر دقیقا به کار می‌آید، یک نکته واقعی کوتاه و طبیعی مثل تجربه شخصی بگنجان]: {snip}"
+            messages.insert(-1, {"role": "system", "content": f"اگر دقیقاً مرتبط بود یک نکته کوتاه واقعی مثل تجربه بگو: {snip[:120]}"})
             log_ai_response(f"RELEVANT_CONTENT gid={chat_id} p={insert_p:.2f}", snip, "")
 
-    question = user_text
-    messages = [{"role": "system", "content": sys_p}, {"role": "user", "content": question}]
-
     # 5. Process by model (Qwen3Client with think for very intelligent real answers)
-    use_think = directed.get('use_think', high_value or bool(retrieved) or len(user_text) > 22)
-    temp = directed.get('temperature', 0.37)
-    mt = directed.get('max_tokens', 155)
+    use_think = directed.get('use_think', high_value or bool(retrieved) or len(user_text) > 25)
+    temp = directed.get('temperature', 0.36)
+    mt = directed.get('max_tokens', 120)  # keep short for small model coherence
 
+    raw = ""
     if _qwen3_client is not None:
         try:
             res = await _qwen3_client.chat(messages, max_tokens=mt, temperature=temp, use_think=use_think)
             raw = res.get("raw") or res.get("content") or ""
             if res.get("thinking"):
-                log_ai_response(f"THINK variant={directed.get('variant')} intent={intent} gid={chat_id}", res["thinking"][:250], "")
-            cleaned = _clean_natural(raw)
-
-            # 6. Critique for professional natural + real + attraction + no weak
-            weak = False
-            try:
-                if USE_AI_CORE:
-                    from ai.ai_core import is_weak_llm_output as _is_weak
-                    weak = _is_weak(cleaned)
-            except:
-                weak = False
-            if cleaned and is_high_quality_natural(cleaned) and not weak:
-                if chat_id and _is_repetitive(chat_id, cleaned):
-                    return None
-                # light polish if needed for even more natural
-                if any(b in cleaned for b in ['۱.', '•', 'البته']):
-                    try:
-                        pr = await _qwen3_client.chat([{"role":"user","content":"این را مثل چت واقعی یک عضو باتجربه گروه بنویس (کوتاه، محاوره، با ارزش واقعی اگر جا دارد). فقط متن نهایی:\n"+cleaned}], max_tokens=130, temperature=0.26, use_think=False)
-                        pc = _clean_natural(pr.get("content",""))
-                        if pc and is_high_quality_natural(pc): cleaned = pc
-                    except: pass
-                # success: update memory for real multi-turn + attraction
-                try:
-                    if chat_id:
-                        # crude topic extract
-                        topic = (user_text[:50] if user_text else "general")
-                        update_user_memory(chat_id, 0, topic)
-                except:
-                    pass
-                log_ai_response(f"INTELLIGENT_FULL variant={directed.get('variant')} think={use_think} gid={chat_id}", raw[:230], cleaned)
-                if chat_id: _record_bot_output(chat_id, cleaned)
-                return cleaned
+                log_ai_response(f"THINK variant={directed.get('variant')} intent={intent} gid={chat_id}", res["thinking"][:200], "")
         except Exception as e:
-            slog(f"complete pipeline client err: {e}")
+            slog(f"qwen client err: {e}")
 
-    # minimal direct fallback (still full model path, never template)
+    # Direct fallback if needed
+    if not raw:
+        try:
+            timeout = aiohttp.ClientTimeout(total=30)
+            async with aiohttp.ClientSession(timeout=timeout) as s:
+                pp = {"model": QWEN3_MODEL, "messages": messages, "stream": False, "think": use_think, "options": {"temperature": temp, "num_predict": mt, "num_ctx": 3072, "repeat_penalty": 1.2}}
+                async with s.post(f"{QWEN3_BASE_URL}/api/chat", json=pp) as rr:
+                    if rr.status == 200:
+                        dd = await rr.json(content_type=None)
+                        raw = (dd.get('message',{}).get('content') or '').strip()
+        except: pass
+
+    cleaned = _clean_natural(raw)
+
+    # Strong repair + sanitize (ported ideas from web3test model_guard + response_builder)
     try:
-        timeout = aiohttp.ClientTimeout(total=35)
-        async with aiohttp.ClientSession(timeout=timeout) as s:
-            pp = {"model": QWEN3_MODEL, "messages": messages, "stream": False, "think": use_think, "options": {"temperature": temp, "num_predict": mt, "num_ctx": 3072}}
-            async with s.post(f"{QWEN3_BASE_URL}/api/chat", json=pp) as rr:
-                if rr.status == 200:
-                    dd = await rr.json(content_type=None)
-                    raw2 = (dd.get('message',{}).get('content') or '').strip()
-                    cc = _clean_natural(raw2)
-                    if cc and is_high_quality_natural(cc):
-                        if chat_id: _record_bot_output(chat_id, cc)
-                        return cc
-    except: pass
-    return None
+        cleaned = _repair_group_output(cleaned)
+    except:
+        pass
+
+    # Quality gate — very strict now
+    weak = False
+    try:
+        if USE_AI_CORE:
+            from ai.ai_core import is_weak_llm_output as _is_weak
+            weak = _is_weak(cleaned)
+    except:
+        pass
+
+    rep = _core_is_repeated(cleaned, group_exchange_history.get(chat_id, [])) if (USE_AI_CORE and _core_is_repeated) else is_repeated_response(cleaned, group_exchange_history.get(chat_id, []))
+
+    if not cleaned or not is_high_quality_natural(cleaned) or weak or rep or len(cleaned) < 8:
+        log_ai_response(f"gate_fail intent={intent} gid={chat_id}", raw[:150], cleaned or "")
+        # Safe natural fallback using retrieved if available (never garbage)
+        if retrieved:
+            short = retrieved.split('\n')[0][:140]
+            if len(short) > 15 and is_high_quality_natural(short):
+                cleaned = short
+            else:
+                return None
+        else:
+            return None
+
+    # Light second pass for polish if robotic
+    if any(b in cleaned for b in ['۱.', '•', 'البته', 'حتما']):
+        try:
+            if _qwen3_client:
+                pr = await _qwen3_client.chat([{"role":"user","content":"این متن را مثل حرف طبیعی یک عضو با تجربه گروه بازنویسی کن. کوتاه، محاوره، بدون لیست و شعار. فقط متن نهایی:\n" + cleaned}], max_tokens=100, temperature=0.28, use_think=False)
+                pc = _clean_natural(pr.get("content",""))
+                if pc and is_high_quality_natural(pc) and not _core_is_repeated(pc, group_exchange_history.get(chat_id, [])):
+                    cleaned = pc
+        except:
+            pass
+
+    # Success path: memory + log
+    try:
+        if chat_id:
+            topic = (user_text[:55] if user_text else "general")
+            update_user_memory(chat_id, 0, topic)
+    except:
+        pass
+
+    log_ai_response(f"INTELLIGENT_FULL variant={directed.get('variant')} think={use_think} gid={chat_id}", raw[:180], cleaned)
+    if chat_id: _record_bot_output(chat_id, cleaned)
+    return cleaned
 
 # Back-compat thin wrapper (used by older internal paths if any)
 async def call_qwen3_api(user_message: str) -> Optional[str]:
@@ -13994,7 +14062,7 @@ async def group_observer_task():
 
                         candidate_msgs.sort(key=_msg_score, reverse=True)
                         target_msg = candidate_msgs[0]
-                        if _msg_score(target_msg) < 2.5:
+                        if _msg_score(target_msg) < 3.2:  # raised bar — only high-value messages get replies
                             continue
 
                         target_text = target_msg.text.strip()
