@@ -13183,26 +13183,23 @@ GROUP_SYSTEM_PROMPT = (
 )
 
 def build_group_messages(user_text: str, retrieved: str, recent_ctx: list, exchange_lines: list, notes: str, mem_ctx: str) -> list:
-    """Build lean messages list — max 2 system messages to avoid confusing the 1.7b model."""
+    """Build lean messages list — max 2 system messages.
+
+    Raw group context is intentionally NOT injected — it causes hallucination when the bot
+    is in off-topic groups (logo design, fortune telling, etc.). The model should respond
+    to the user's actual message using its persona, not echo group noise.
+    """
     messages = [{"role": "system", "content": GROUP_SYSTEM_PROMPT}]
 
     ctx_parts = []
     if retrieved:
-        ctx_parts.append(f"اطلاعات:\n{retrieved[:220]}")
-    # Always include fresh group context (recent messages from the group) when available
-    if recent_ctx:
-        if isinstance(recent_ctx[0], str) and len(recent_ctx[0]) > 5:
-            ctx_parts.append(f"گروه:\n{recent_ctx[0][:260]}")
-        else:
-            ctx_text = "\n".join(str(c)[:80] for c in recent_ctx[:2] if c)
-            if ctx_text:
-                ctx_parts.append(f"گروه:\n{ctx_text}")
-    # Always include conversation history (bot ↔ user exchange)
+        ctx_parts.append(f"اطلاعات:\n{retrieved[:280]}")
+    # Only include bot-user exchange history, never raw group messages
     if exchange_lines:
-        ctx_parts.append("مکالمه:\n" + "\n".join(exchange_lines[-2:]))
+        ctx_parts.append("مکالمه قبلی:\n" + "\n".join(exchange_lines[-2:]))
 
     if ctx_parts:
-        messages.append({"role": "system", "content": "\n\n".join(ctx_parts)[:520]})
+        messages.append({"role": "system", "content": "\n\n".join(ctx_parts)[:450]})
 
     messages.append({"role": "user", "content": user_text})
     return messages
@@ -13651,6 +13648,17 @@ async def handle_group_ai(event):
 
         if not is_mentioned and not triggers:
             return
+
+        # Domain relevance gate: only engage with messages relevant to our topics
+        # (drugs, crypto, migration, shipping, payment). Prevents responding to unrelated
+        # groups about logo design, fortune telling, English teaching, car sales, etc.
+        if not is_mentioned and USE_AI_CORE and _strategist:
+            try:
+                strat = _strategist(text)
+                if not strat.get('should_engage', True) and strat.get('score', 0) < 1.5:
+                    return
+            except Exception:
+                pass
 
         # cooldown (mentions bypass)
         now = time.time()
