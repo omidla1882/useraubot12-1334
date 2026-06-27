@@ -14468,28 +14468,35 @@ async def main():
     global responder
     responder = ProfessionalGroupResponder(client, QWEN3_BASE_URL, QWEN3_MODEL, GROUP_AI_TIMEOUT_SECONDS)
     
-    # شروع کلاینت تلگرام — با retry برای session conflict در Railway
-    _start_delays = [30, 60, 90, 120, 180, 240]
+    # شروع کلاینت تلگرام — retry loop تا ۳۰ دقیقه برای session conflict در Railway
+    # Web server already running above → healthcheck passes during all retries
     _started = False
-    for _attempt, _wait in enumerate(_start_delays, start=1):
+    _attempt = 0
+    _total_waited = 0
+    _MAX_WAIT = 1800  # 30 min — Railway kills old container well before this
+    while not _started and _total_waited < _MAX_WAIT:
+        _attempt += 1
         try:
-            print(f"🔌 Connecting Telethon client (attempt {_attempt})...", flush=True)
+            print(f"🔌 Connecting Telethon (attempt {_attempt}, waited={_total_waited}s)...", flush=True)
             await client.start()
             print("✅ Telethon client started successfully", flush=True)
             _started = True
-            break
         except Exception as _e:
             _err = str(_e)
             print(f"❌ Telethon start error (attempt {_attempt}): {_err[:200]}", flush=True)
             if 'two different IP' in _err or 'AuthKeyDuplicated' in _err or 'authorization key' in _err.lower():
-                print(f"⏳ Session conflict — waiting {_wait}s for old container to die...", flush=True)
+                # Exponential backoff: 60, 90, 120, 150, 180, 180, 180 ...
+                _wait = min(60 + (_attempt - 1) * 30, 180)
+                print(f"⏳ Session conflict — waiting {_wait}s (total={_total_waited}s)...", flush=True)
                 await asyncio.sleep(_wait)
+                _total_waited += _wait
             else:
-                await asyncio.sleep(15)
+                await asyncio.sleep(20)
+                _total_waited += 20
     if not _started:
-        print("❌ FATAL: Could not start Telethon after all attempts — exiting for Railway restart", flush=True)
-        await asyncio.sleep(30)
-        sys.exit(1)  # Railway will restart the container automatically
+        print("❌ FATAL: 30-min timeout — sleeping 120s then exiting for Railway restart", flush=True)
+        await asyncio.sleep(120)
+        sys.exit(1)
     
     # ═══════════════════════════════════════════════════════════
     # 🚀 پیام استارت (تنها لاگ در نسخه Silent)
