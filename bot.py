@@ -13075,111 +13075,21 @@ class ProfessionalGroupResponder:
         return list(self.history[chat_id])[-limit:]
 
     async def generate(self, chat_id, user_text, style="informative"):
-        """ALWAYS full professional intelligent pipeline. No shortcuts.
-        Uses ModelDirector + ContentIntelligence + think + critique + real answers + natural attraction.
-        Delegates to the central call_qwen3_natural when possible for consistency.
+        """ALWAYS delegates to the single canonical intelligent pipeline.
+        No duplicate fallback. All group content goes through the same strong path.
         """
         hist = self.get_recent_history(chat_id)
-        # Always prefer the central pure-intelligent path (properly directed)
         try:
             response = await call_qwen3_natural([], user_text, chat_id=chat_id, high_value=True)
             if response and is_high_quality_natural(response):
                 if not (USE_AI_CORE and _core_is_repeated and _core_is_repeated(response, hist)):
                     self.add_turn(chat_id, 'bot', response, None)
                     return response
-        except Exception:
-            pass
+        except Exception as e:
+            slog(f"responder delegate err: {e}")
 
-        # Fallback: in-responder full pipeline using director/content (still model directed, no template)
-        if USE_AI_CORE and _core_classify and _core_retrieve and _core_plan:
-            intent_info = _core_classify(user_text)
-            retrieved = _core_retrieve(user_text, intent_info.get('intent', ''))
-            plan = _core_plan(intent_info, bool(retrieved), len(hist) > 0, user_text)
-        else:
-            intent_info = classify_intent(user_text)
-            intent = intent_info.get('intent', 'unknown')
-            retrieved = retrieve_knowledge(user_text, intent)
-            plan = plan_response(intent_info, bool(retrieved), len(hist) > 0, user_text)
-
-        intent = intent_info.get('intent', 'unknown')
-        strategy = plan.get('strategy', 'llm_reasoning')
-
-        # context
-        ctx_lines = [f"{r}: {t[:160]}" for r, t, _ in hist[-5:]]
-        ctx_str = "\n".join(ctx_lines)
-        notes = get_group_notes(chat_id)
-        if notes:
-            ctx_str = (ctx_str + "\nیادداشت‌های گروه: " + notes) if ctx_str else "یادداشت‌های گروه: " + notes
-
-        sys_p = NATURAL_GROUP_SYSTEM_PROMPT.format(retrieved=retrieved or "(موردی یافت نشد)")
-        if ctx_str and ctx_str.strip():
-            question = f"[پیام‌های اخیر گروه]:\n{ctx_str[:400]}\n\n[پیام جدید]: {user_text}"
-        else:
-            question = user_text
-
-        # DIRECT
-        dir_obj = _director if (USE_AI_CORE and _director) else None
-        cnt_obj = _content_intel if (USE_AI_CORE and _content_intel) else None
-        if dir_obj:
-            directed = dir_obj.direct(intent, plan, user_text, bool(retrieved), bool(ctx_lines))
-        else:
-            directed = {'system_addon': 'Be natural, curious, professional peer. Sometimes share one short real helpful insight from knowledge if it truly fits. Give concrete answers.', 'use_think': True, 'temperature': 0.38, 'max_tokens': 150, 'variant': 'general_engage'}
-        if directed.get('system_addon'):
-            sys_p += "\n\n" + directed['system_addon']
-
-        # sometimes relevant content insert
-        if cnt_obj and random.random() < cnt_obj.should_insert(intent, user_text, len(ctx_lines)):
-            snip = cnt_obj.get_relevant_snippet(user_text, intent)
-            if snip:
-                sys_p += f"\n\n[اگر دقیقا به کار می‌آید، یک نکته واقعی کوتاه و طبیعی مثل تجربه شخصی بگنجان]: {snip}"
-
-        messages = [{"role": "system", "content": sys_p}, {"role": "user", "content": question}]
-
-        raw = ""
-        use_think = directed.get('use_think', True)
-        temp = directed.get('temperature', 0.38)
-        mt = directed.get('max_tokens', 150)
-        if _qwen3_client is not None:
-            try:
-                res = await _qwen3_client.chat(messages, max_tokens=mt, temperature=temp, use_think=use_think)
-                raw = res.get("raw") or res.get("content", "")
-                if res.get("thinking"):
-                    log_ai_response(f"THINK_TRACE gid={chat_id} intent={intent}", res["thinking"][:300], "")
-            except Exception:
-                pass
-        if not raw:
-            try:
-                timeout = aiohttp.ClientTimeout(total=self.timeout)
-                async with aiohttp.ClientSession(timeout=timeout) as sess:
-                    payload = {"model": self.qwen_model, "messages": messages, "stream": False, "think": use_think, "options": {"temperature": temp, "num_predict": mt, "num_ctx": 3072}}
-                    async with sess.post(f"{self.qwen_base}/api/chat", json=payload) as r:
-                        if r.status == 200:
-                            data = await r.json(content_type=None)
-                            raw = (data.get('message', {}).get('content') or '').strip()
-            except Exception:
-                pass
-
-        cleaned = _clean_natural(raw)
-
-        # Critique for natural professional attraction + real
-        critique_text = cleaned
-        if cleaned and _qwen3_client is not None and any(m in cleaned for m in ['۱.', '•', 'البته']):
-            try:
-                crit = await _qwen3_client.chat([{"role": "user", "content": "این پاسخ را طبیعی‌تر و مثل یک عضو واقعی باتجربه گروه بنویس (کوتاه، محاوره، با ارزش واقعی اگر جا دارد). فقط متن نهایی:\n" + cleaned}], max_tokens=140, temperature=0.28, use_think=False)
-                c_clean = _clean_natural(crit.get("content", ""))
-                if c_clean and is_high_quality_natural(c_clean):
-                    critique_text = c_clean
-            except Exception:
-                pass
-
-        rep_check = _core_is_repeated(critique_text, hist) if (USE_AI_CORE and _core_is_repeated) else is_repeated_response(critique_text, hist)
-        if not is_high_quality_natural(critique_text) or rep_check:
-            log_ai_response(f"gate_fail intent={intent} strategy={strategy}", raw, critique_text or "")
-            return None
-
-        self.add_turn(chat_id, 'bot', critique_text, intent)
-        log_ai_response(f"PROF_RESP_FULL variant={directed.get('variant')} intent={intent} gid={chat_id}", raw[:200], critique_text)
-        return critique_text
+        # If the central path returned None (gated), return None — do not fall back to weaker logic.
+        return None
 
 # Global responder instance (initialized later in main)
 responder = None
@@ -13251,20 +13161,19 @@ def retrieve_knowledge(query: str, intent: str = "") -> str:
 # Stronger system prompt modeled directly after the professional one that works well with Qwen3 in web3test.
 # Adapted for "experienced casual group peer" persona (not official support agent).
 GROUP_SYSTEM_PROMPT = (
-    "تو یک ایرانی واقعی حدود ۳۰ ساله‌ای که عضو فعال این گروه تلگرامی هستی. آدم با تجربه و کمک‌کننده، نه ربات و نه فروشنده حرفه‌ای.\n\n"
-    "دانش پایه (فقط وقتی دقیقاً مرتبط است استفاده کن):\n"
-    "سایت اصلی: medpharmaweb.com — دارو و مکمل اورجینال اروپایی/آمریکایی. پرداخت با ۸ ارز دیجیتال (BTC, ETH, USDT روی TRC20 بهترین، TRX, BNB, TON, SOL, DOGE). ارسال سریع به تهران، استانبول، دبی، بغداد، تورنتو (معمولاً زیر ۴-۸ ساعت بعد تأیید) و بقیه شهرها تا ۲۴ ساعت. بسته‌بندی کاملاً محرمانه.\n"
-    "اطلاعات دارویی عمومی مجاز است (کاربرد کلی، دسته دارویی، نکات نگهداری ساده). هرگز دوز شخصی، تشخیص، یا توصیه درمانی برای یک نفر خاص نده — همیشه بگو این اطلاعات عمومی است و باید با پزشک مشورت شود.\n\n"
-    "سبک پاسخ (حتماً رعایت کن تا طبیعی و هوشمند به نظر برسد):\n"
-    "- محاوره واقعی و کوتاه: ۱ تا ۳-۴ جمله روان. مستقیم برو سر اصل مطلب.\n"
-    "- از کلمات واقعی استفاده کن: آره، می‌دونم، تجربه‌ام این بود، راستی، به نظرم، معمولاً، برام هم همین‌طور بود.\n"
-    "- بدون لیست، شماره‌گذاری، «البته»، «حتماً»، شعار، تکرار جمله‌ها.\n"
-    "- اگر چیزی دقیق نمی‌دانی صادقانه بگو «دقیق نمی‌دونم» و یک سوال سبک برگردان.\n"
-    "- گاهی (نه هر بار) یک نکته واقعی کوتاه و مفید از «تجربه» خودت بگو اگر دقیقاً به درد بخورد (مثل «من TRC20 زدم، ۷-۸ دقیقه طول کشید» یا «به استانبول برام زیر ۶ ساعت اومد»).\n"
-    "- وقتی کاربر درباره خرید/دارو حرف می‌زند، خیلی طبیعی بگو مثلاً «من از همون سایت گرفتم، اورجینال بود» — بدون فشار فروش.\n"
-    "- هدف اصلی: مکالمه واقعی و جذاب که اعتماد ایجاد کند و کاربر خودش بخواهد خصوصی ادامه دهد.\n"
-    "- اگر پرسید «رباتی؟» بگو «نه بابا، آدمم تو گروه» و موضوع را ادامه بده.\n\n"
-    "قانون طلایی: فقط از دانش واقعی و زمینه استفاده کن. هرگز چیزی اختراع نکن. پاسخ باید مثل حرف زدن یک عضو باتجربه گروه باشد."
+    "تو یک عضو واقعی باتجربه این گروه تلگرامی هستی (ایرانی حدود ۳۰ ساله، کمک‌کننده و صادق). نه ربات، نه فروشنده.\n\n"
+    "دانش پایه (فقط وقتی دقیقاً به درد می‌خورد استفاده کن، مثل تجربه شخصی):\n"
+    "سایت: medpharmaweb.com — دارو و مکمل اورجینال اروپایی/آمریکایی. پرداخت با ۸ ارز (BTC, ETH, USDT روی TRC20 کم‌کارمزد، TRX, BNB, TON, SOL, DOGE). ارسال سریع به تهران، استانبول، دبی، بغداد، تورنتو (معمولاً زیر ۴-۸ ساعت بعد تأیید) و بقیه تا ۲۴ ساعت. بسته محرمانه.\n"
+    "اطلاعات دارویی فقط عمومی (کاربرد کلی، دسته، نگهداری ساده). هیچ‌وقت دوز شخصی، تشخیص یا توصیه برای یک نفر خاص نده. همیشه بگو «این اطلاعات عمومی است، با پزشک مشورت کن».\n\n"
+    "سبک پاسخ (حتماً اینطوری باش تا طبیعی و حرفه‌ای به نظر برسی و مخاطب جذب بشه):\n"
+    "- کوتاه و محاوره واقعی: ۱ تا ۴ جمله روان. مستقیم برو سر اصل. از کلمات واقعی استفاده کن: آره، می‌دونم، تجربه‌ام این بود، راستی، معمولاً، برام هم همین‌طور بود.\n"
+    "- بدون لیست، شماره، «البته»، «حتماً»، شعار تبلیغاتی، تکرار.\n"
+    "- اگر دقیق نمی‌دونی بگو «دقیق نمی‌دونم» و یک سوال سبک یا نکته کوچک برگردان.\n"
+    "- گاهی (نه همیشه) یک نکته واقعی کوتاه و مفید از «تجربه خودت» بگو اگر دقیقاً کمک کند (مثل «TRC20 برام برای استانبول سریع و کم‌کارمزد بود» یا «به دبی برام زیر ۶ ساعت اومد، محرمانه»).\n"
+    "- وقتی حرف خرید/دارو می‌شود، خیلی طبیعی بگو مثلاً «من از همون سایت گرفتم، اورجینال بود» — بدون فشار فروش.\n"
+    "- هدف: مکالمه واقعی که اعتماد و کنجکاوی ایجاد کند و کاربر خودش بخواهد خصوصی ادامه دهد.\n"
+    "- اگر پرسید رباتی؟ بگو «نه بابا آدمم تو گروه» و موضوع را ادامه بده.\n\n"
+    "قانون: فقط از دانش واقعی و زمینه استفاده کن. پاسخ باید دقیقاً مثل حرف زدن یک عضو باتجربه و کمک‌کننده گروه باشد."
 )
 
 def build_group_messages(user_text: str, retrieved: str, recent_ctx: list, exchange_lines: list, notes: str, mem_ctx: str) -> list:
