@@ -445,27 +445,26 @@ def get_family_info(family_key: str, language: str = 'fa') -> Optional[Dict]:
     }
 
 def get_drug_context_snippet(text: str, language: str = 'fa') -> str:
-    """Full grounded context using family + indication (web3test composer + drug_knowledge pattern)."""
+    """Full grounded context using family + indication (web3test composer + drug_knowledge pattern). Natural peer voice."""
     try:
         fam_key = match_drug_family(text)
         if fam_key:
             info = get_family_info(fam_key, language)
             if info:
-                base = f"{info.get('active_ingredient', '')}: {info.get('indication', '')}"
-                # short natural version
+                ai = info.get('active_ingredient', fam_key)
+                ind = info.get('indication', '')
                 if language == 'fa':
-                    return f"درباره {info.get('active_ingredient', fam_key)}: {info.get('indication', '')} (اطلاعات عمومی)."
-                return base
+                    return f"{ai} برای {ind}. من خودم گرفتم موجود بود."
+                return f"{ai} for {ind}."
     except Exception:
         pass
-    # fallback to aliases
     t = (text or '').lower()
     for fam, data in DRUG_FAMILIES.items():
         aliases = data.get('aliases_fa', []) + data.get('aliases_en', [])
         if any(a.lower() in t for a in aliases):
             ind = data.get('indication_fa') or data.get('indication_en', '')
             ai = data.get('active_ingredient_fa') or data.get('active_ingredient_en', fam)
-            return f"{ai}: {ind}."
+            return f"{ai}: {ind}. تجربه منم خوب بود."
     return ''
 
 def retrieve_knowledge(query: str, intent: str = "") -> str:
