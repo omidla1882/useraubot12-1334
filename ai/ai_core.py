@@ -452,7 +452,7 @@ def get_family_info(family_key: str, language: str = 'fa') -> Optional[Dict]:
     }
 
 def get_drug_context_snippet(text: str, language: str = 'fa') -> str:
-    """Full grounded context using family + indication (web3test composer + drug_knowledge pattern). Natural peer voice."""
+    """Factual drug context for LLM prompt — indication + active ingredient. No personal claims."""
     try:
         fam_key = match_drug_family(text)
         if fam_key:
@@ -461,7 +461,7 @@ def get_drug_context_snippet(text: str, language: str = 'fa') -> str:
                 ai = info.get('active_ingredient', fam_key)
                 ind = info.get('indication', '')
                 if language == 'fa':
-                    return f"{ai} برای {ind}. من خودم گرفتم موجود بود."
+                    return f"{ai} برای {ind}."
                 return f"{ai} for {ind}."
     except Exception:
         pass
@@ -471,7 +471,7 @@ def get_drug_context_snippet(text: str, language: str = 'fa') -> str:
         if any(a.lower() in t for a in aliases):
             ind = data.get('indication_fa') or data.get('indication_en', '')
             ai = data.get('active_ingredient_fa') or data.get('active_ingredient_en', fam)
-            return f"{ai}: {ind}. تجربه منم خوب بود."
+            return f"{ai}: {ind}."
     return ''
 
 def retrieve_knowledge(query: str, intent: str = "") -> str:
@@ -553,11 +553,7 @@ def compose_knowledge_for_prompt(query: str, intent: str = "", base: str = "") -
     drug_ctx = get_drug_context_snippet(query)
     if drug_ctx and drug_ctx not in (parts[-1] if parts else ""):
         parts.append(drug_ctx)
-    res = "\n".join([p for p in parts if p])[:750]
-    # encourage natural experience inserts for value attraction
-    if res and random.random() < 0.55:
-        res = res.replace('موجوده.', 'من خودم گرفتم، موجود بود.')
-    return res
+    return "\n".join([p for p in parts if p])[:750]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -726,44 +722,98 @@ def get_few_shots_for_prompt(query: str, k: int = 2) -> str:
     return "\n".join([s[1] for s in scored[:k]]) if scored else ""
 
 def generate_natural_reply_local(user_text: str, intent: str = "", retrieved: str = "", style: str = "general_engage") -> str:
-    """Strong local natural reply generator using composer + few-shots + peer voice.
-    Fast, grounded, human-like 1-3 sentences. Primary path for group messages.
-    """
-    base = (compose_knowledge_for_prompt(user_text, intent) or retrieved or "").strip()
-    few = get_few_shots_for_prompt(user_text, k=1)
+    """Fast, natural Persian reply. Uses intent pools and FEW_SHOT_BANK — never pastes raw knowledge text."""
 
-    # Extract the best grounded piece
-    line = ""
-    if base:
-        for candidate in base.split("\n"):
-            c = candidate.strip()
-            if 15 < len(c) < 140:
-                line = c
-                break
-        if line:
-            line = re.sub(r"\(اطلاعات عمومی\)", "", line)
-            if "من خودم" not in line and random.random() < 0.65:
-                line += " من خودم گرفتم موجود بود."
+    # 1. Instant pools for social intents
+    _SOCIAL = {
+        'greeting': [
+            "سلام! بگو ببینم چی میخوای.",
+            "سلام، چطوری؟ در خدمتم.",
+            "درود! چطور کمکت کنم؟",
+            "هی سلام. بگو چی لازم داری.",
+        ],
+        'thanks': [
+            "خواهش. هر چیزی لازم داشتی بگو.",
+            "خواهش میکنم. موفق باشی.",
+            "راحت باش.",
+        ],
+        'goodbye': [
+            "خداحافظ.",
+            "مراقب باش. هر وقت لازم شد برگرد.",
+            "فعلاً.",
+        ],
+        'presence_check': [
+            "آره هستم. بگو.",
+            "اینجام.",
+        ],
+    }
+    if intent in _SOCIAL:
+        return random.choice(_SOCIAL[intent])
 
-    # Optional light few-shot flavor (never paste full example)
-    if few and random.random() < 0.35:
-        # take only a short natural phrase from the example
-        match = re.search(r"جواب طبیعی: ([^.]+\.)", few)
-        if match:
-            extra = match.group(1).strip()
-            if len(extra) > 10 and len(extra) < 80:
-                line = line + " " + extra if line else extra
+    # 2. Direct FEW_SHOT_BANK match — these are already natural replies
+    q = (user_text or "").lower()
+    matches = []
+    for ex_q, ex_a in FEW_SHOT_BANK:
+        score = sum(1 for w in q.split() if len(w) > 2 and w in ex_q.lower())
+        if score >= 1:
+            matches.append((score, ex_a))
+    if matches:
+        matches.sort(reverse=True)
+        top_score, top_answer = matches[0]
+        if top_score >= 2:
+            return top_answer
+        if top_score >= 1 and intent not in ('unknown', 'clarification', 'help_request', 'complaint'):
+            return top_answer
 
-    if not line:
-        line = "آره تجربه منم شبیه همین بود. دقیق بگو ببینم چی لازم داری."
-
-    # Final polish
-    line = re.sub(r"\s+", " ", line).strip()
-    line = re.sub(r"البته|حتما|قطعا|۱۰۰٪|لیست", "", line)
-    if len(line) > 155:
-        line = line[:152] + "..."
-
-    return line
+    # 3. Intent-specific fallback pools (grounded, varied, natural)
+    _INTENT_POOL: Dict[str, List[str]] = {
+        'product_search': [
+            "ریتالین، اوزمپیک، مودافینیل — همه موجودن. کدوم میخوای؟",
+            "موجوده. بگو کدومشو میخوای و برای کجا.",
+            "آره داریم. بیشتر توضیح بده.",
+            "بگو کدوم محصولو میخوای، کمکت میکنم.",
+        ],
+        'stock_check': [
+            "آره موجوده، اورجینال. پیام بده.",
+            "موجوده. بگو برای کجاست.",
+            "داریم. بپرس.",
+        ],
+        'shipping_time': [
+            "معمولاً ۴-۸ ساعت بعد تأیید پرداخت. بسته محرمانه میاد.",
+            "سریعه. تهران زیر ۴ ساعت، استانبول ۶-۸ ساعت.",
+            "بسته محرمانه — معمولاً همون روز میرسه.",
+        ],
+        'crypto_info': [
+            "USDT روی TRC20 بهترینه — کم‌کارمزد و سریع تأیید میشه.",
+            "از نوبیتکس یا والکس USDT بخر روی TRC20 بفرست.",
+            "TRC20 برای USDT بهترینه. هر دو صرافی خوبن.",
+        ],
+        'payment_crypto_help': [
+            "TRC20 رو انتخاب کن — ارزونه. آدرس رو دقیق کپی کن.",
+            "USDT روی TRC20. بعد واریز ۵-۱۵ دقیقه تأیید میشه.",
+            "از نوبیتکس USDT بخر، شبکه TRC20 رو انتخاب کن.",
+        ],
+        'faq_order_process': [
+            "محصول رو انتخاب کن، USDT پرداخت کن — همین.",
+            "سفارش از سایت ساده‌ست — انتخاب، USDT، تحویل.",
+        ],
+        'trust_question': [
+            "هولوگرام داره، batch number قابل چکه. اورجینال اروپایی.",
+            "اصل اروپایی با هولوگرام. اگه خواستی جزئیات بیشتر بگم.",
+        ],
+        'faq_prescription': [
+            "برای بعضی داروها نسخه لازمه ولی راه‌حل داره. بگو دقیق چی میخوای.",
+            "بستگه داره. بگو چی میخوای راهنماییت کنم.",
+        ],
+        'unknown': [
+            "بگو ببینم چی لازم داری.",
+            "جزئیات بیشتری بده تا کمکت کنم.",
+            "آره، بگو دقیق‌تر.",
+            "چی میخوای؟ بگو.",
+        ],
+    }
+    pool = _INTENT_POOL.get(intent, _INTENT_POOL['unknown'])
+    return random.choice(pool)
 
 def decide_engagement(user_text: str, recent_ctx: str = "", group_notes: str = "") -> dict:
     """Return decision for smart random engagement + style. Stronger for natural PM funnel + intelligent interactions."""
