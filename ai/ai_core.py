@@ -547,7 +547,11 @@ def compose_knowledge_for_prompt(query: str, intent: str = "", base: str = "") -
     drug_ctx = get_drug_context_snippet(query)
     if drug_ctx and drug_ctx not in (parts[-1] if parts else ""):
         parts.append(drug_ctx)
-    return "\n".join([p for p in parts if p])[:750]
+    res = "\n".join([p for p in parts if p])[:750]
+    # encourage natural experience inserts for value attraction
+    if res and random.random() < 0.55:
+        res = res.replace('موجوده.', 'من خودم گرفتم، موجود بود.')
+    return res
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -664,7 +668,7 @@ WEAK_LLM_PATTERNS = [
     r'فقط\s*ترون', r'مدفارماوب', r'فقط بگو', r'لیست', r'^\s*۱\.',
 ]
 
-def is_weak_llm_output(text: str) -> bool:
+def is_weak_llm_output(text: str, language: str = 'fa') -> bool:
     if not text or len(text.strip()) < 6:
         return True
     t = text.lower()
@@ -673,6 +677,9 @@ def is_weak_llm_output(text: str) -> bool:
             return True
     lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
     if len(lines) >= 2 and len(set(lines)) == 1:
+        return True
+    # over-confident nonsense or robotic
+    if re.search(r'قطعا|حتما|۱۰۰٪|بدون شک|دقیقا همین', t):
         return True
     return False
 

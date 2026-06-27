@@ -13161,25 +13161,12 @@ def retrieve_knowledge(query: str, intent: str = "") -> str:
 # Stronger system prompt modeled directly after the professional one that works well with Qwen3 in web3test.
 # Adapted for "experienced casual group peer" persona (not official support agent).
 GROUP_SYSTEM_PROMPT = (
-    "تو یک ایرانی ۳۰ ساله‌ای و عضو واقعی این گروه تلگرامی هستی. نه ربات، نه فروشنده — یک آدم باتجربه.\n\n"
-    "دانش پایه‌ات (مثل تجربه شخصی بگو، نه تبلیغ):\n"
-    "• ریتالین، کونسرتا، ساندوز (ADHD) — اورجینال اروپایی از medpharmaweb.com\n"
-    "• اوزمپیک، مونجارو (کاهش وزن/دیابت) — موجوده، نووو نوردیسک\n"
-    "• مودافینیل — بیداری و تمرکز\n"
-    "• پرداخت: USDT روی TRC20 (کم‌کارمزد)، BTC، ETH، BNB، TON\n"
-    "• ارسال: تهران، استانبول، دبی، تورنتو — ۴-۸ ساعت بعد تأیید، محرمانه\n\n"
-    "قانون پاسخ:\n"
-    "• ۱ تا ۳ جمله کوتاه محاوره‌ای — مثل صحبت با دوست\n"
-    "• از این کلمات استفاده کن: آره، می‌دونم، برام هم همین‌طور بود، معمولاً، راستش\n"
-    "• ممنوع: لیست، شماره، «البته»، «حتماً»، پاراگراف بلند، تکرار\n"
-    "• اگه نمی‌دونی: «دقیق نمی‌دونم» + یه سوال کوتاه برگردون\n"
-    "• درباره دارو/خرید: «من از همون سایت گرفتم، اورجینال بود» — طبیعی، بدون فشار فروش\n"
-    "• درباره پرداخت: «TRC20 برام کارمزد کم داشت، سریع تأیید شد»\n"
-    "• اگه پرسید رباتی؟ بگو: «نه بابا آدمم» و ادامه بده\n\n"
-    "نمونه خوب: «آره ریتالین اورجینال پیدا کردن سخته، من از medpharmaweb گرفتم خوب بود. کجایی؟»\n"
-    "نمونه خوب: «TRC20 برام سریع بود، ۱۰ دقیقه تأیید شد. آدرس رو دقیق چک کن»\n"
-    "نمونه بد: «البته! این یک موضوع مهم است. ۱. ابتدا باید...»\n\n"
-    "هدف: مکالمه‌ای که کاربر خودش بخواد ادامه بده و به پیام خصوصی کشیده بشه."
+    "تو یک ایرانی ۳۰ ساله واقعی عضو همین گروه تلگرامی هستی. آدم باتجربه‌ای که بعضی چیزا رو امتحان کرده، نه فروشنده و نه ربات.\n"
+    "دانشت واقعی و ساده‌ست: ریتالین/کونسرتا اورجینال اروپایی، اوزمپیک و مونجارو، مودافینیل برای تمرکز، پرداخت با USDT-TRC20 و چند ارز دیگه، ارسال محرمانه به تهران/استانبول/دبی/تورنتو معمولاً سریع.\n"
+    "سبک حرف زدنت: محاوره‌ای، کوتاه و جاری (۱ تا ۴ جمله). از کلماتی مثل آره، می‌دونم، برام هم همین بود، معمولاً، راستش، تجربه‌ام این بود استفاده کن. گاهی یه نکته واقعی و مفید در مورد ارسال یا پرداخت یا دارو بگو که برای بقیه ارزش داشته باشه — طبیعی، بدون لیست و بدون فشار.\n"
+    "ممنوع مطلق: لیست، «البته»، «حتماً»، جملات رسمی طولانی، تکرار قبلی، ادعای مطلق، هالوسینیشن برند یا شبکه.\n"
+    "اگه چیزی بلد نیستی کوتاه بگو دقیق نمی‌دونم و یه سوال ساده برگردون تا حرف ادامه پیدا کنه.\n"
+    "هدف اینه که حرف طبیعی باشه، کاربر احساس کنه با یه آدم واقعی حرف می‌زنه و کم‌کم بخواد تو خصوصی بیشتر حرف بزنه."
 )
 
 def build_group_messages(user_text: str, retrieved: str, recent_ctx: list, exchange_lines: list, notes: str, mem_ctx: str) -> list:
@@ -13515,7 +13502,7 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
     Mirrors the web3test approach: small system prompt + clean context + think=False + temp=0.25.
     Full pipeline: classify → retrieve → build (max 2 system msgs) → call model → clean → gate.
     """
-    # 1. Classify intent + retrieve grounded knowledge
+    # 1. Classify intent + retrieve grounded knowledge (full director direction)
     if USE_AI_CORE and _core_classify and _core_retrieve:
         intent_info = _core_classify(user_text)
         intent = intent_info.get('intent', 'unknown')
@@ -13527,6 +13514,21 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
         intent_info = classify_intent(user_text)
         intent = intent_info.get('intent', 'unknown')
         retrieved = retrieve_knowledge(user_text, intent)
+
+    # Director + content intel for intelligent direction + occasional natural value insert
+    variant = 'general_engage'
+    insert_snippet = ''
+    try:
+        if USE_AI_CORE and _director:
+            d = _director.decide_variant(intent, user_text, high_value)
+            variant = d.get('variant', variant)
+        if USE_AI_CORE and _content_intel and retrieved and random.random() < 0.45:
+            ins = _content_intel.get_relevant_snippet(user_text, intent)
+            if ins and len(ins) > 12:
+                insert_snippet = ins
+                retrieved = (retrieved + '\n' + ins)[:600] if retrieved else ins
+    except Exception:
+        pass
 
     # 2. Build lean messages (max 2 system messages — web3test proven approach)
     exchange_lines = [f"{r}: {t[:80]}" for r, t in list(group_exchange_history.get(chat_id, []))[-3:]]
@@ -13541,33 +13543,30 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
         mem_ctx="",  # skip mem_ctx to reduce noise on small model
     )
 
-    # 3. Call model — think=False, temp=0.25 mirrors web3test (proven for Persian coherence)
-    # Only enable thinking for complex explicit questions with enough context
-    use_think = (
-        high_value and
-        len(user_text) > 50 and
-        any(w in user_text.lower() for w in ['چطور', 'چگونه', 'مشکل', 'تجربه', 'پرداخت', 'ارسال', 'عوارض'])
-    )
-    temp = 0.25 if not use_think else 0.22
-    max_tokens = 180
+    # 3. Call model — use think + better params for max intelligence on Qwen3 (web3test proven)
+    # use_think for complex / high value to get professional reasoning trace
+    use_think = high_value or len(user_text) > 35 or any(w in (user_text or '').lower() for w in ['چطور', 'چگونه', 'مشکل', 'تجربه', 'عوارض', 'ارسال', 'پرداخت', 'دوز'])
+    temp = 0.38 if not use_think else 0.32
+    max_tokens = 160 if not use_think else 200
+    num_ctx = 4096
 
     raw = ""
     if _qwen3_client is not None:
         try:
-            res = await _qwen3_client.chat(messages, max_tokens=max_tokens, temperature=temp, use_think=use_think, num_ctx=2048)
+            res = await _qwen3_client.chat(messages, max_tokens=max_tokens, temperature=temp, use_think=use_think, num_ctx=num_ctx)
             raw = res.get("raw") or res.get("content") or ""
         except Exception as e:
             slog(f"qwen client err: {e}")
 
-    # Direct HTTP fallback
+    # Direct HTTP fallback (better params)
     if not raw:
         try:
-            timeout = aiohttp.ClientTimeout(total=35)
+            timeout = aiohttp.ClientTimeout(total=50)
             async with aiohttp.ClientSession(timeout=timeout) as s:
                 pp = {
-                    "model": QWEN3_MODEL, "messages": messages, "stream": False, "think": False,
-                    "options": {"temperature": 0.25, "num_predict": 180, "num_ctx": 2048,
-                                "repeat_penalty": 1.20, "top_p": 0.75, "top_k": 25}
+                    "model": QWEN3_MODEL, "messages": messages, "stream": False, "think": use_think,
+                    "options": {"temperature": temp, "num_predict": max_tokens, "num_ctx": num_ctx,
+                                "repeat_penalty": 1.18, "top_p": 0.85, "top_k": 40}
                 }
                 async with s.post(f"{QWEN3_BASE_URL}/api/chat", json=pp) as rr:
                     if rr.status == 200:
@@ -13576,26 +13575,46 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
         except Exception:
             pass
 
-    # 4. Clean + repair
+    # 4. Clean + repair (use model_guard style + local repair)
     cleaned = _clean_natural(raw)
     try:
         cleaned = _repair_group_output(cleaned)
     except Exception:
         pass
 
-    # 5. Quality gate — accept more, reject only genuine garbage
-    if not cleaned or len(cleaned.strip()) < 8:
-        log_ai_response(f"gate_empty intent={intent} gid={chat_id}", raw[:80], "")
-        return None
-
-    if not is_high_quality_natural(cleaned):
-        log_ai_response(f"gate_quality intent={intent} gid={chat_id}", raw[:120], cleaned[:60] if cleaned else "")
-        # Try 1 line from retrieved knowledge as safe fallback
-        if retrieved:
-            for ln in retrieved.split('\n')[:2]:
-                ln = ln.strip()
-                if 15 < len(ln) < 160 and is_high_quality_natural(ln):
-                    return ln
+    # 5. Quality gate — stronger grounding fallback. NEVER return empty/low for engagement.
+    # Prioritize real grounded answers from composer.
+    if (not cleaned or len(cleaned.strip()) < 8 or not is_high_quality_natural(cleaned)):
+        log_ai_response(f"gate_fail intent={intent} strategy={'composer_fallback' if retrieved else 'weak'}", raw[:100] if raw else '', cleaned[:60] if cleaned else '')
+        # Strong grounded fallback using compose + natural human phrasing
+        grounded = ""
+        if USE_AI_CORE and _core_compose:
+            try:
+                grounded = _core_compose(user_text, intent) or ""
+            except Exception:
+                grounded = retrieved or ""
+        else:
+            grounded = retrieved or ""
+        if grounded:
+            # Turn grounded knowledge into 1-2 natural peer sentences
+            lines = [ln.strip() for ln in grounded.split('\n') if 12 < len(ln.strip()) < 220]
+            if lines:
+                pick = lines[0]
+                # Make it feel like real experience comment
+                natural = pick
+                if not any(v in natural for v in ['می‌دونم', 'برام', 'معمولاً', 'راستش', 'گرفتم']):
+                    natural = natural.replace(':', ' — ').strip()
+                    natural = "معمولاً " + natural[0].lower() + natural[1:] if natural else ""
+                if 15 < len(natural) < 220 and is_high_quality_natural(natural):
+                    log_ai_response(f"composer_fallback intent={intent} gid={chat_id}", pick[:80], natural)
+                    try:
+                        if chat_id: _record_bot_output(chat_id, natural)
+                    except: pass
+                    return natural
+        # Last resort: very short natural peer line (still better than silence/nonsense)
+        safe = "آره، تجربه منم شبیه همین بود. دقیق‌تر بگو ببینم چی مدنظرت هست؟"
+        if is_high_quality_natural(safe):
+            return safe
         return None
 
     # Repetition guard
@@ -13752,17 +13771,29 @@ def _mark_funnel_sent(group_id: int, user_id: int):
 
 async def generate_pm_funnel_msg(recent_ctx: str, exchange_count: int = 3, chat_id: int = None) -> str:
     """Model-directed natural PM invitation (intelligent, context-aware, low pressure).
-    Falls back to strong varied templates only if model unavailable.
+    Multiple strategies. Uses full pipeline + grounding.
     """
+    ctx = (recent_ctx or '')[:280]
+    hint = f"بعد از {exchange_count} تبادل واقعی با یه کاربر، یه جمله خیلی طبیعی و کوتاه بنویس که پیشنهاد بدی خصوصی ادامه بدیم. زمینه: {ctx or 'حرف در مورد دارو/ارسال/پرداخت'}. فقط یه جمله محاوره‌ای مثل حرف زدن با دوست."
     try:
-        hint = f"بعد از {exchange_count} تبادل مفید، یک جمله خیلی طبیعی و محاوره‌ای پیشنهاد بده که کاربر رو آروم به پیام خصوصی دعوت کنه. زمینه:\n{recent_ctx[:300] if recent_ctx else 'صحبت مفید در مورد دارو/ارسال/پرداخت'}"
-        resp = await call_qwen3_natural([recent_ctx] if recent_ctx else [], hint, chat_id=chat_id, high_value=True)
-        if resp and is_high_quality_natural(resp) and len(resp) < 220:
+        resp = await call_qwen3_natural([ctx] if ctx else [], hint, chat_id=chat_id, high_value=True)
+        if resp and is_high_quality_natural(resp) and 8 < len(resp) < 200:
             return resp
     except Exception:
         pass
-    # Strong fallback (still professional)
-    return random.choice(_PM_INVITE_LINES)
+    # Context-aware intelligent fallbacks (no generic spam)
+    if any(x in ctx.lower() for x in ['ارسال', 'استانبول', 'دبی', 'تورنتو']):
+        opts = ["جزئیات ارسال و زمان‌بندی رو خصوصی بهتر میتونم بگم، پیام بده", "برای شهرت بگو، تو خصوصی سریع‌تر راهنمایی میکنم"]
+    elif any(x in ctx.lower() for x in ['پرداخت', 'usdt', 'tether', 'ترون']):
+        opts = ["آدرس و شبکه دقیق رو خصوصی بگو ببینم درست باشه", "یه نکته پرداخت دارم که اینجا نمیشه راحت گفت، پیام بده"]
+    else:
+        opts = [
+            "راستش اینجا شلوغه، اگه میخوای بیشتر حرف بزنیم خصوصی پیام بده",
+            "جزئیاتش بهتره خصوصی بگم، پیام بده راحت‌تر حرف میزنیم",
+            "اگه سوالت ادامه داره تو چت خصوصی سریع‌تر راهنمایی میکنم",
+            "یه چیزایی هست که بهتره خصوصی بگم، پیامم بده",
+        ]
+    return random.choice(opts)
 
 
 # ── Strengthened Proactive Natural Engagement (observer) ─────────────────────
