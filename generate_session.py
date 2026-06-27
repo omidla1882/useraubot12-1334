@@ -7,11 +7,30 @@ Usage:
     python3 generate_session.py
 """
 import asyncio
+import os
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
-API_ID = 23517903
-API_HASH = 'f9acbac0d745902c690ecf1eaf35efbe'
+# Read from env vars. Falls back to parsing bot.py for convenience when running locally.
+def _load_credentials():
+    api_id = int(os.environ['TELEGRAM_API_ID']) if 'TELEGRAM_API_ID' in os.environ else 0
+    api_hash = os.environ.get('TELEGRAM_API_HASH', '')
+    if not api_id or not api_hash:
+        try:
+            with open('bot.py') as f:
+                for line in f:
+                    s = line.strip()
+                    if s.startswith('api_id =') and not api_id:
+                        api_id = int(s.split('=')[1].strip())
+                    if s.startswith('api_hash =') and not api_hash:
+                        api_hash = s.split('=')[1].strip().strip("'\"")
+        except Exception:
+            pass
+    if not api_id or not api_hash:
+        raise SystemExit("Set TELEGRAM_API_ID and TELEGRAM_API_HASH env vars before running.")
+    return api_id, api_hash
+
+API_ID, API_HASH = _load_credentials()
 
 
 async def main():
