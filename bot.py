@@ -13714,17 +13714,17 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
 
     rep = _core_is_repeated(cleaned, group_exchange_history.get(chat_id, [])) if (USE_AI_CORE and _core_is_repeated) else is_repeated_response(cleaned, group_exchange_history.get(chat_id, []))
 
-    if not cleaned or not is_high_quality_natural(cleaned) or weak or rep or len(cleaned) < 8:
+    if not cleaned or not is_high_quality_natural(cleaned) or weak or rep or len(cleaned) < 10:
         log_ai_response(f"gate_fail intent={intent} gid={chat_id}", raw[:150], cleaned or "")
-        # Safe natural fallback using retrieved if available (never garbage)
+        # Strong safe natural fallback from real composer output
         if retrieved:
-            short = retrieved.split('\n')[0][:140]
-            if len(short) > 15 and is_high_quality_natural(short):
-                cleaned = short
-            else:
-                return None
-        else:
-            return None
+            for ln in retrieved.split('\n')[:3]:
+                ln = ln.strip()
+                if 12 < len(ln) < 170 and is_high_quality_natural(ln):
+                    if 'ارسال' in ln or 'پرداخت' in ln or 'ریتالین' in ln.lower() or 'اوزمپیک' in ln.lower():
+                        return ln
+                    return ln
+        return None
 
     # Light second pass for polish if robotic
     if any(b in cleaned for b in ['۱.', '•', 'البته', 'حتما']):
