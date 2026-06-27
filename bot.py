@@ -438,6 +438,49 @@ def get_group_notes(chat_id: int) -> str:
 
 load_group_notes()
 
+# === More Professional: Lightweight persistent user + group memory ===
+USER_MEMORY_FILE = "remember/user_memory.json"
+user_memory: Dict[str, dict] = {}  # key = f"{group_id}:{user_id}"
+
+def load_user_memory():
+    global user_memory
+    try:
+        if os.path.exists(USER_MEMORY_FILE):
+            with open(USER_MEMORY_FILE, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+                user_memory = raw
+    except Exception:
+        pass
+
+def save_user_memory():
+    try:
+        os.makedirs(os.path.dirname(USER_MEMORY_FILE), exist_ok=True)
+        with open(USER_MEMORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(user_memory, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def update_user_memory(group_id: int, user_id: int, topic: str, sentiment: str = "neutral"):
+    key = f"{group_id}:{user_id}"
+    if key not in user_memory:
+        user_memory[key] = {"topics": [], "last_ts": 0, "engagement": 0}
+    mem = user_memory[key]
+    if topic and topic not in mem["topics"]:
+        mem["topics"].append(topic[:60])
+        if len(mem["topics"]) > 5:
+            mem["topics"] = mem["topics"][-5:]
+    mem["last_ts"] = time.time()
+    mem["engagement"] = mem.get("engagement", 0) + 1
+    save_user_memory()
+
+def get_user_context(group_id: int, user_id: int) -> str:
+    key = f"{group_id}:{user_id}"
+    mem = user_memory.get(key, {})
+    topics = ", ".join(mem.get("topics", [])[-3:])
+    return f"کاربر قبلاً در مورد {topics} حرف زده." if topics else ""
+
+load_user_memory()
+
 def _hash_text(t: str) -> str:
     return str(hash(t.lower().strip()[:120]))[:12]
 
@@ -13006,138 +13049,110 @@ class ProfessionalGroupResponder:
         return list(self.history[chat_id])[-limit:]
 
     async def generate(self, chat_id, user_text, style="informative"):
-        """Template-first → Qwen3 pipeline. Templates handle 75% of known intents instantly."""
-        intent_info = classify_intent(user_text)
-        intent = intent_info.get('intent', 'unknown')
+        """ALWAYS full professional intelligent pipeline. No shortcuts.
+        Uses ModelDirector + ContentIntelligence + think + critique + real answers + natural attraction.
+        Delegates to the central call_qwen3_natural when possible for consistency.
+        """
         hist = self.get_recent_history(chat_id)
+        # Always prefer the central pure-intelligent path (properly directed)
+        try:
+            response = await call_qwen3_natural([], user_text, chat_id=chat_id, high_value=True)
+            if response and is_high_quality_natural(response):
+                if not (USE_AI_CORE and _core_is_repeated and _core_is_repeated(response, hist)):
+                    self.add_turn(chat_id, 'bot', response, None)
+                    return response
+        except Exception:
+            pass
 
-        # Template-first: instant, reliable, always natural Persian
-        if intent not in ('unknown',):
-            tmpl = _get_template_response(intent, user_text)
-            if tmpl and not is_repeated_response(tmpl, hist):
-                if random.random() < 0.75:
-                    self.add_turn(chat_id, 'bot', tmpl, intent)
-                    log_ai_response(f"PROF_TEMPLATE intent={intent} gid={chat_id}", "", tmpl)
-                    return tmpl
+        # Fallback: in-responder full pipeline using director/content (still model directed, no template)
+        if USE_AI_CORE and _core_classify and _core_retrieve and _core_plan:
+            intent_info = _core_classify(user_text)
+            retrieved = _core_retrieve(user_text, intent_info.get('intent', ''))
+            plan = _core_plan(intent_info, bool(retrieved), len(hist) > 0, user_text)
         else:
-            tmpl = _get_template_response('unknown', user_text)
-            if tmpl and not is_repeated_response(tmpl, hist) and random.random() < 0.60:
-                self.add_turn(chat_id, 'bot', tmpl, intent)
-                log_ai_response(f"PROF_TEMPLATE unknown gid={chat_id}", "", tmpl)
-                return tmpl
+            intent_info = classify_intent(user_text)
+            intent = intent_info.get('intent', 'unknown')
+            retrieved = retrieve_knowledge(user_text, intent)
+            plan = plan_response(intent_info, bool(retrieved), len(hist) > 0, user_text)
 
-        # Qwen3 for novel/complex queries
-        retrieved = retrieve_knowledge(user_text, intent)
-        has_retrieved = bool(retrieved)
-        has_history = len(hist) > 0
-        plan = plan_response(intent_info, has_retrieved, has_history, user_text)
-        strategy = plan['strategy']
-        thinking = plan['thinking']
+        intent = intent_info.get('intent', 'unknown')
+        strategy = plan.get('strategy', 'llm_reasoning')
 
-        # context + group notes (conversation style)
+        # context
         ctx_lines = [f"{r}: {t[:160]}" for r, t, _ in hist[-5:]]
         ctx_str = "\n".join(ctx_lines)
         notes = get_group_notes(chat_id)
         if notes:
             ctx_str = (ctx_str + "\nیادداشت‌های گروه: " + notes) if ctx_str else "یادداشت‌های گروه: " + notes
 
-        sys_p = NATURAL_GROUP_SYSTEM_PROMPT.format(
-            retrieved=retrieved or "(موردی یافت نشد)",
-        )
-
-        # 5 key few-shot pairs — lean and effective for 1.7b
-        _few_shot_p = [
-            {"role": "user", "content": "سلام"},
-            {"role": "assistant", "content": "سلام، چطوری؟"},
-            {"role": "user", "content": "کسی میدونه ریتالین اصل کجاست؟"},
-            {"role": "assistant", "content": "آره، فارماوب داره. اروپاییه با هولوگرام، معتبره."},
-            {"role": "user", "content": "ربات هستی؟"},
-            {"role": "assistant", "content": "نه بابا آدمم، چرا میپرسی؟"},
-            {"role": "user", "content": "ارسال به استانبول چقدر طول میکشه؟"},
-            {"role": "assistant", "content": "زیر ۸ ساعته معمولاً، بسته‌بندی هم محرمانه‌ست."},
-            {"role": "user", "content": "مهاجرت ترکیه ارزشش داره؟"},
-            {"role": "assistant", "content": "بستگه به هدفت. اگه فقط میخوای بری، آسون‌ترینه ولی بلندمدت چالش داره."},
-        ]
-        # Inject context as prefix in user message (no duplication)
+        sys_p = NATURAL_GROUP_SYSTEM_PROMPT.format(retrieved=retrieved or "(موردی یافت نشد)")
         if ctx_str and ctx_str.strip():
             question = f"[پیام‌های اخیر گروه]:\n{ctx_str[:400]}\n\n[پیام جدید]: {user_text}"
         else:
             question = user_text
 
-        payload = {
-            "model": self.qwen_model,
-            "messages": [
-                {"role": "system", "content": sys_p},
-                *_few_shot_p,
-                {"role": "user", "content": question},
-            ],
-            "stream": False,
-            "think": False,
-            "options": {
-                "temperature": 0.38,
-                "num_predict": 120,
-                "num_ctx": 3072,
-                "top_p": 0.85,
-                "repeat_penalty": 1.18,
-                "top_k": 35,
-            },
-        }
+        # DIRECT
+        dir_obj = _director if (USE_AI_CORE and _director) else None
+        cnt_obj = _content_intel if (USE_AI_CORE and _content_intel) else None
+        if dir_obj:
+            directed = dir_obj.direct(intent, plan, user_text, bool(retrieved), bool(ctx_lines))
+        else:
+            directed = {'system_addon': 'Be natural, curious, professional peer. Sometimes share one short real helpful insight from knowledge if it truly fits. Give concrete answers.', 'use_think': True, 'temperature': 0.38, 'max_tokens': 150, 'variant': 'general_engage'}
+        if directed.get('system_addon'):
+            sys_p += "\n\n" + directed['system_addon']
+
+        # sometimes relevant content insert
+        if cnt_obj and random.random() < cnt_obj.should_insert(intent, user_text, len(ctx_lines)):
+            snip = cnt_obj.get_relevant_snippet(user_text, intent)
+            if snip:
+                sys_p += f"\n\n[اگر دقیقا به کار می‌آید، یک نکته واقعی کوتاه و طبیعی مثل تجربه شخصی بگنجان]: {snip}"
+
+        messages = [{"role": "system", "content": sys_p}, {"role": "user", "content": question}]
+
         raw = ""
-        for _ in range(2):
+        use_think = directed.get('use_think', True)
+        temp = directed.get('temperature', 0.38)
+        mt = directed.get('max_tokens', 150)
+        if _qwen3_client is not None:
+            try:
+                res = await _qwen3_client.chat(messages, max_tokens=mt, temperature=temp, use_think=use_think)
+                raw = res.get("raw") or res.get("content", "")
+                if res.get("thinking"):
+                    log_ai_response(f"THINK_TRACE gid={chat_id} intent={intent}", res["thinking"][:300], "")
+            except Exception:
+                pass
+        if not raw:
             try:
                 timeout = aiohttp.ClientTimeout(total=self.timeout)
                 async with aiohttp.ClientSession(timeout=timeout) as sess:
+                    payload = {"model": self.qwen_model, "messages": messages, "stream": False, "think": use_think, "options": {"temperature": temp, "num_predict": mt, "num_ctx": 3072}}
                     async with sess.post(f"{self.qwen_base}/api/chat", json=payload) as r:
                         if r.status == 200:
                             data = await r.json(content_type=None)
                             raw = (data.get('message', {}).get('content') or '').strip()
-                            break
-            except Exception:
-                await asyncio.sleep(0.5)
-        cleaned = _clean_natural(raw)
-
-        # Self-critique: only polish if the response looks like it needs it
-        critique_text = cleaned
-        critique_note = "none"
-        # Only run critique if response is borderline (has list markers or is too formal)
-        needs_polish = cleaned and len(cleaned) > 15 and any(
-            marker in cleaned for marker in ['۱.', '۱)', '•', '- ', '**', 'البته', 'بله،', 'حتماً']
-        )
-        if needs_polish:
-            crit_prompt = (
-                "این پاسخ را طبیعی‌تر کن. مثل یک عضو عادی گروه تلگرامی بنویس. "
-                "فقط متن نهایی بنویس بدون هیچ توضیح:\n" + cleaned
-            )
-            try:
-                c_payload = {
-                    "model": self.qwen_model,
-                    "messages": [{"role": "user", "content": crit_prompt}],
-                    "stream": False,
-                    "think": False,
-                    "options": {"temperature": 0.28, "num_predict": 120, "repeat_penalty": 1.18},
-                }
-                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as sess:
-                    async with sess.post(f"{self.qwen_base}/api/chat", json=c_payload) as cr:
-                        if cr.status == 200:
-                            cd = await cr.json(content_type=None)
-                            c_raw = (cd.get('message', {}).get('content') or '').strip()
-                            c_clean = _clean_natural(c_raw)
-                            if c_clean and len(c_clean) > 8 and not is_repeated_response(c_clean, hist):
-                                critique_text = c_clean
-                                critique_note = "polished"
             except Exception:
                 pass
 
-        # Final gates (high_quality + conversation_brain anti-rep)
-        if not is_high_quality_natural(critique_text) or is_repeated_response(critique_text, hist):
-            log_ai_response(f"gate_fail intent={plan['intent']} strategy={strategy} crit={critique_note}", raw, critique_text or "")
+        cleaned = _clean_natural(raw)
+
+        # Critique for natural professional attraction + real
+        critique_text = cleaned
+        if cleaned and _qwen3_client is not None and any(m in cleaned for m in ['۱.', '•', 'البته']):
+            try:
+                crit = await _qwen3_client.chat([{"role": "user", "content": "این پاسخ را طبیعی‌تر و مثل یک عضو واقعی باتجربه گروه بنویس (کوتاه، محاوره، با ارزش واقعی اگر جا دارد). فقط متن نهایی:\n" + cleaned}], max_tokens=140, temperature=0.28, use_think=False)
+                c_clean = _clean_natural(crit.get("content", ""))
+                if c_clean and is_high_quality_natural(c_clean):
+                    critique_text = c_clean
+            except Exception:
+                pass
+
+        rep_check = _core_is_repeated(critique_text, hist) if (USE_AI_CORE and _core_is_repeated) else is_repeated_response(critique_text, hist)
+        if not is_high_quality_natural(critique_text) or rep_check:
+            log_ai_response(f"gate_fail intent={intent} strategy={strategy}", raw, critique_text or "")
             return None
 
-        self.add_turn(chat_id, 'bot', critique_text, plan['intent'])
-        log_ai_response(
-            f"PROF_RESP intent={plan['intent']} strategy={strategy} retrieved={bool(retrieved)} crit={critique_note} hist={has_history}",
-            raw[:300], critique_text
-        )
+        self.add_turn(chat_id, 'bot', critique_text, intent)
+        log_ai_response(f"PROF_RESP_FULL variant={directed.get('variant')} intent={intent} gid={chat_id}", raw[:200], critique_text)
         return critique_text
 
 # Global responder instance (initialized later in main)
@@ -13208,16 +13223,18 @@ def retrieve_knowledge(query: str, intent: str = "") -> str:
     return "\n".join(out)
 
 NATURAL_GROUP_SYSTEM_PROMPT = (
-    "تو یه ایرانی ۳۰ ساله هستی که توی این گروه تلگرامی عضوی. نه ربات، نه ادمین — یه آدم واقعی با تجربه.\n\n"
-    "قوانین:\n"
-    "- فارسی محاوره: میگم، میدونم، میشه، داری. هیچوقت رسمی ننویس.\n"
-    "- ۱ تا ۲ جمله MAX. پیام کوتاه مثل چت واقعی.\n"
-    "- بدون لیست، بدون ستاره، بدون مقدمه. نه «البته»، نه «حتماً»، نه «ممنون».\n"
-    "- مستقیم جواب بده.\n"
-    "- اگه از دارو یا خرید پرسیدن: medpharmaweb.com بگو.\n"
-    "- ربات هستی؟ → «نه بابا آدمم» و موضوع رو عوض کن.\n"
-    "- اگه مکالمه ادامه‌دار شد: «اگه میخوای بیشتر صحبت کنیم پیامم بده» بگو.\n\n"
-    "اطلاعات مرتبط (فقط وقتی لازمه استفاده کن):\n{retrieved}"
+    "تو یه ایرانی واقعی حدود ۳۰ ساله‌ای که تو این گروه تلگرامی عضوی. آدم عادی با تجربه، نه ربات و نه فروشنده.\n\n"
+    "سبک (کاملاً طبیعی و حرفه‌ای برای جذب مخاطب):\n"
+    "- محاوره واقعی: میگم، میدونم، آره، راستی، به نظرم، تجربه‌ام این بود.\n"
+    "- ۱ تا ۴ جمله طبیعی و روان. گاهی کوتاه، گاهی با یه نکته واقعی مفید وقتی به درد می‌خوره.\n"
+    "- بدون لیست، شماره، رسمی‌بازی، «البته»، «حتماً»، شعار تبلیغاتی.\n"
+    "- مستقیم، صادق و باارزش. اگه چیزی دقیق نمی‌دونی بگو «دقیق نمی‌دونم».\n"
+    "- گاهی (نه همیشه) یه نکته واقعی کوتاه و مفید از تجربه‌ات بگنجان (مثل روش پرداخت TRC20، زمان ارسال واقعی، یا یه نکته کوچیک در مورد دارو) — فقط اگر واقعاً کمک کنه و طبیعی باشه. مثل حرف زدن با دوست.\n"
+    "- اگه حرف خرید/دارو شد: طبیعی بگو «من از مدفارماوب گرفتم اورجینال بود» یا مشابه، بدون فشار فروش.\n"
+    "- کنجکاو و جذاب باش: سوال سبک برگردون یا جزئیات واقعی بده که مخاطب بخواد ادامه بده یا خصوصی پیام بده.\n"
+    "- ربات؟ → «نه بابا آدمم» و موضوع رو ادامه بده یا سوال بپرس.\n\n"
+    "اطلاعات کمکی (فقط وقتی دقیقاً به درد می‌خوره استفاده کن، نه همیشه):\n{retrieved}\n\n"
+    "هدف: تعامل هوشمند، طبیعی و حرفه‌ای که اعتماد و کنجکاوی ایجاد کنه و در نهایت شانس پیام خصوصی رو بالا ببره. اول فکر کن (درونیت) با زمینه و دانش واقعی، بعد فقط جواب نهایی طبیعی بنویس."
 )
 
 # Prompt for PM-funneling (used separately, not in system prompt)
@@ -13266,6 +13283,34 @@ def _message_triggers_ai(text: str) -> bool:
     if '?' in text or '؟' in text:
         return True
     return bool(_AI_TRIGGER_COMPILED.search(text))
+
+# ═══════════════════════════════════════════════════════════
+# Professional AI core import (new ai/ modules for max Qwen3 intelligence)
+# ═══════════════════════════════════════════════════════════
+try:
+    from ai.llm_client import qwen3 as _qwen3_client
+    from ai.ai_core import (
+        classify_intent as _core_classify,
+        retrieve_knowledge as _core_retrieve,
+        compose_knowledge as _core_compose,
+        plan_response as _core_plan,
+        is_repeated_response as _core_is_repeated,
+        director as _director,
+        content_intel as _content_intel,
+        decide_engagement as _strategist,
+    )
+    USE_AI_CORE = True
+except Exception:
+    _qwen3_client = None
+    _core_classify = None
+    _core_retrieve = None
+    _core_compose = None
+    _core_plan = None
+    _core_is_repeated = None
+    _director = None
+    _content_intel = None
+    _strategist = None
+    USE_AI_CORE = False
 
 # ═══════════════════════════════════════════════════════════
 # Phase 3: Ported from web3test/chat/conversation_brain.py for advanced loop prevention & diversity
@@ -13496,125 +13541,144 @@ async def handle_owner_command(event):
     return False
 
 
-async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int = None) -> Optional[str]:
+async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int = None, *, high_value: bool = False) -> Optional[str]:
     """
-    Hybrid template + Qwen3 pipeline.
-    1. Classify intent
-    2. Try pre-written template (75% of known intents) — instant, guaranteed natural
-    3. Fall back to Qwen3 for unknown topics or variety (25%)
+    MORE COMPLETE pure intelligent pipeline (always hits model for "very intelligent").
+    Requests properly directed (ModelDirector).
+    Sometimes inserts relevant natural content (for attraction + real value).
+    Gives real grounded answers.
+    Full pipeline: classify→plan→retrieve+compose→directed prompt→client(think when useful)→critique.
+    NO template shortcuts. Always model-directed + processed.
     """
-    intent_info = classify_intent(user_text)
+    # 1. Always professional classify + plan (core)
+    if USE_AI_CORE and _core_classify and _core_retrieve and _core_plan:
+        intent_info = _core_classify(user_text)
+        base_ret = _core_retrieve(user_text, intent_info.get('intent', ''))
+        # use full professional composer for grounded real answers
+        try:
+            retrieved = _core_compose(user_text, intent_info.get('intent', '')) or base_ret
+        except:
+            retrieved = base_ret
+        if not retrieved:
+            retrieved = base_ret
+        plan = _core_plan(intent_info, bool(retrieved), len(group_exchange_history.get(chat_id, [])) > 0, user_text)
+    else:
+        intent_info = classify_intent(user_text)
+        intent = intent_info.get('intent', 'unknown')
+        base_ret = retrieve_knowledge(user_text, intent)
+        retrieved = base_ret
+        plan = plan_response(intent_info, bool(retrieved), len(group_exchange_history.get(chat_id, [])) > 0, user_text)
+
     intent = intent_info.get('intent', 'unknown')
 
-    # Step 1: Template-first for known intents (fast, reliable, always natural Persian)
-    if intent not in ('unknown', 'medical_advice'):
-        tmpl = _get_template_response(intent, user_text)
-        if tmpl:
-            if not (chat_id and _is_repetitive(chat_id, tmpl)):
-                if random.random() < 0.75:  # 75% use template; 25% use Qwen3 for variety
-                    log_ai_response(f"TEMPLATE intent={intent} gid={chat_id} txt={user_text[:40]!r}", "", tmpl)
-                    if chat_id:
-                        _record_bot_output(chat_id, tmpl)
-                    return tmpl
+    # 2. Rich context + memory for real multi-turn intelligence
+    ctx_text = "\n".join(str(c) for c in (recent_ctx or [])[-4:] if c)[:380].strip() if recent_ctx else ""
+    exchange_lines = [f"{r}: {t[:110]}" for r, t in list(group_exchange_history.get(chat_id, []))[-4:]]
+    notes = get_group_notes(chat_id) if chat_id else ""
+    mem_ctx = get_user_context(chat_id, 0) if chat_id else ""
+    few = ""
+    try:
+        if USE_AI_CORE and 'get_few_shots_for_prompt' in dir(__import__('ai.ai_core', fromlist=['get_few_shots_for_prompt'])):
+            from ai.ai_core import get_few_shots_for_prompt as _fs
+            few = _fs(user_text, 2)
+    except:
+        few = ""
+
+    sys_p = NATURAL_GROUP_SYSTEM_PROMPT.format(retrieved=retrieved or "(موردی یافت نشد)")
+    ctx_blob = "\n".join(filter(None, [ctx_text, "\n".join(exchange_lines), notes, mem_ctx]))[:300]
+    if ctx_blob:
+        sys_p += "\n\n[زمینه برای پاسخ واقعی و هوشمند]:\n" + ctx_blob
+    if few:
+        sys_p += "\n\nچند مثال طبیعی موفق (سبک تقلید کن):\n" + few[:450]
+
+    # 3. Properly DIRECT the request to model (intelligence + attraction + real)
+    dir_obj = _director if (USE_AI_CORE and _director) else None
+    cnt_obj = _content_intel if (USE_AI_CORE and _content_intel) else None
+
+    if dir_obj:
+        directed = dir_obj.direct(intent, plan, user_text, bool(retrieved), bool(exchange_lines))
     else:
-        # For unknown intent — still try drug/migration pattern detection
-        tmpl = _get_template_response('unknown', user_text)
-        if tmpl and not (chat_id and _is_repetitive(chat_id, tmpl)):
-            if random.random() < 0.60:
-                log_ai_response(f"TEMPLATE unknown gid={chat_id} txt={user_text[:40]!r}", "", tmpl)
-                if chat_id:
-                    _record_bot_output(chat_id, tmpl)
-                return tmpl
+        directed = {'system_addon': '', 'use_think': high_value or bool(retrieved), 'temperature': 0.38, 'max_tokens': 150, 'variant': 'general_engage'}
 
-    # Step 2: Qwen3 for novel/complex queries
-    retrieved = retrieve_knowledge(user_text, intent)
-    sys_prompt = NATURAL_GROUP_SYSTEM_PROMPT.format(retrieved=retrieved or "")
+    if directed.get('system_addon'):
+        sys_p += "\n\n" + directed['system_addon']
 
-    _few_shot = [
-        {"role": "user", "content": "سلام"},
-        {"role": "assistant", "content": "سلام، چطوری؟"},
-        {"role": "user", "content": "کسی میدونه ریتالین اصل کجاست؟"},
-        {"role": "assistant", "content": "آره، فارماوب داره. اروپاییه با هولوگرام."},
-        {"role": "user", "content": "ربات هستی؟"},
-        {"role": "assistant", "content": "نه بابا آدمم، چرا میپرسی؟"},
-        {"role": "user", "content": "ارسال به استانبول چقدر طول میکشه؟"},
-        {"role": "assistant", "content": "زیر ۸ ساعته معمولاً."},
-        {"role": "user", "content": "مهاجرت ترکیه ارزشش داره؟"},
-        {"role": "assistant", "content": "بستگه به هدفت. آسون‌ترینه ولی بلندمدت چالش داره."},
-    ]
-
-    if recent_ctx:
-        ctx_text = "\n".join(str(c) for c in recent_ctx[-3:] if c)[:300].strip()
-        question = f"[گروه]:\n{ctx_text}\n\n[پیام]: {user_text}" if ctx_text else user_text
+    # 4. Sometimes insert relevant content naturally (attract audience with real value)
+    insert_p = 0.0
+    if cnt_obj:
+        insert_p = cnt_obj.should_insert(intent, user_text, len(exchange_lines))
     else:
-        question = user_text
+        insert_p = 0.22 if high_value or bool(retrieved) else 0.12
+    if random.random() < insert_p:
+        snip = ""
+        if cnt_obj:
+            snip = cnt_obj.get_relevant_snippet(user_text, intent)
+        if snip:
+            sys_p += f"\n\n[اگر دقیقا به کار می‌آید، یک نکته واقعی کوتاه و طبیعی مثل تجربه شخصی بگنجان]: {snip}"
+            log_ai_response(f"RELEVANT_CONTENT gid={chat_id} p={insert_p:.2f}", snip, "")
 
-    url = f"{QWEN3_BASE_URL}/api/chat"
-    base_payload = {
-        "model": QWEN3_MODEL,
-        "messages": [
-            {"role": "system", "content": sys_prompt},
-            *_few_shot,
-            {"role": "user", "content": question},
-        ],
-        "stream": False,
-        "think": False,
-        "options": {
-            "temperature": 0.38,
-            "num_predict": 100,
-            "num_ctx": 2048,
-            "top_p": 0.85,
-            "top_k": 35,
-            "repeat_penalty": 1.18,
-            "num_thread": 4,
-        },
-    }
+    question = user_text
+    messages = [{"role": "system", "content": sys_p}, {"role": "user", "content": question}]
 
-    for attempt in range(2):
+    # 5. Process by model (Qwen3Client with think for very intelligent real answers)
+    use_think = directed.get('use_think', high_value or bool(retrieved) or len(user_text) > 22)
+    temp = directed.get('temperature', 0.37)
+    mt = directed.get('max_tokens', 155)
+
+    if _qwen3_client is not None:
         try:
-            payload = dict(base_payload)
-            if attempt > 0:
-                payload["options"]["temperature"] = 0.50
-            timeout = aiohttp.ClientTimeout(total=GROUP_AI_TIMEOUT_SECONDS)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, json=payload) as resp:
-                    if resp.status == 200:
-                        data = await resp.json(content_type=None)
-                        raw = (data.get('message', {}).get('content') or '').strip()
-                        cleaned = _clean_natural(raw)
-                        if is_high_quality_natural(cleaned):
-                            if chat_id and _is_repetitive(chat_id, cleaned):
-                                log_ai_response(f"REPETITIVE_SKIPPED gid={chat_id}", raw, cleaned)
-                                if attempt == 0:
-                                    continue
-                                # Fall back to template on repetition
-                                tmpl = _get_template_response(intent, user_text)
-                                return tmpl
-                            log_ai_response(f"QWEN3 intent={intent} attempt={attempt} gid={chat_id} txt={user_text[:40]!r}", raw, cleaned)
-                            if chat_id:
-                                _record_bot_output(chat_id, cleaned)
-                            return cleaned
-                        else:
-                            log_ai_response(f"LOW_QUALITY attempt={attempt} gid={chat_id}", raw, cleaned or "")
-                            if attempt == 1:
-                                # Last resort: return template if available
-                                tmpl = _get_template_response(intent, user_text)
-                                if tmpl:
-                                    return tmpl
-        except asyncio.TimeoutError:
-            log_ai_response(f"TIMEOUT attempt={attempt} gid={chat_id}", "", "")
-            # On timeout, immediately use template (don't wait for retry)
-            tmpl = _get_template_response(intent, user_text)
-            if tmpl and not (chat_id and _is_repetitive(chat_id, tmpl)):
-                log_ai_response(f"TIMEOUT_TEMPLATE intent={intent} gid={chat_id}", "", tmpl)
-                if chat_id:
-                    _record_bot_output(chat_id, tmpl)
-                return tmpl
-            break  # don't retry after timeout
+            res = await _qwen3_client.chat(messages, max_tokens=mt, temperature=temp, use_think=use_think)
+            raw = res.get("raw") or res.get("content") or ""
+            if res.get("thinking"):
+                log_ai_response(f"THINK variant={directed.get('variant')} intent={intent} gid={chat_id}", res["thinking"][:250], "")
+            cleaned = _clean_natural(raw)
+
+            # 6. Critique for professional natural + real + attraction + no weak
+            weak = False
+            try:
+                if USE_AI_CORE:
+                    from ai.ai_core import is_weak_llm_output as _is_weak
+                    weak = _is_weak(cleaned)
+            except:
+                weak = False
+            if cleaned and is_high_quality_natural(cleaned) and not weak:
+                if chat_id and _is_repetitive(chat_id, cleaned):
+                    return None
+                # light polish if needed for even more natural
+                if any(b in cleaned for b in ['۱.', '•', 'البته']):
+                    try:
+                        pr = await _qwen3_client.chat([{"role":"user","content":"این را مثل چت واقعی یک عضو باتجربه گروه بنویس (کوتاه، محاوره، با ارزش واقعی اگر جا دارد). فقط متن نهایی:\n"+cleaned}], max_tokens=130, temperature=0.26, use_think=False)
+                        pc = _clean_natural(pr.get("content",""))
+                        if pc and is_high_quality_natural(pc): cleaned = pc
+                    except: pass
+                # success: update memory for real multi-turn + attraction
+                try:
+                    if chat_id:
+                        # crude topic extract
+                        topic = (user_text[:50] if user_text else "general")
+                        update_user_memory(chat_id, 0, topic)
+                except:
+                    pass
+                log_ai_response(f"INTELLIGENT_FULL variant={directed.get('variant')} think={use_think} gid={chat_id}", raw[:230], cleaned)
+                if chat_id: _record_bot_output(chat_id, cleaned)
+                return cleaned
         except Exception as e:
-            if attempt == 1:
-                slog(f"❌ Qwen3 natural error: {e}")
-        await asyncio.sleep(0.5)
+            slog(f"complete pipeline client err: {e}")
+
+    # minimal direct fallback (still full model path, never template)
+    try:
+        timeout = aiohttp.ClientTimeout(total=35)
+        async with aiohttp.ClientSession(timeout=timeout) as s:
+            pp = {"model": QWEN3_MODEL, "messages": messages, "stream": False, "think": use_think, "options": {"temperature": temp, "num_predict": mt, "num_ctx": 3072}}
+            async with s.post(f"{QWEN3_BASE_URL}/api/chat", json=pp) as rr:
+                if rr.status == 200:
+                    dd = await rr.json(content_type=None)
+                    raw2 = (dd.get('message',{}).get('content') or '').strip()
+                    cc = _clean_natural(raw2)
+                    if cc and is_high_quality_natural(cc):
+                        if chat_id: _record_bot_output(chat_id, cc)
+                        return cc
+    except: pass
     return None
 
 # Back-compat thin wrapper (used by older internal paths if any)
@@ -13675,12 +13739,8 @@ async def handle_group_ai(event):
         fresh_ctx = await fetch_recent_group_context(client, chat_id, limit=10)
         ctx_for_llm = [fresh_ctx] + exchange_lines + ([f"یادداشت: {notes_str}"] if notes_str else [])
 
-        # Phase 3: Use ProfessionalGroupResponder for generation (includes critique + anti-rep)
-        if responder is None:
-            # fallback to old if not init
-            response = await call_qwen3_natural(ctx_for_llm, text, chat_id=chat_id)
-        else:
-            response = await responder.generate(chat_id, text, style=choose_reply_style())
+        # Full intelligent pipeline (properly directed + processed by model, real answers, occasional relevant content)
+        response = await call_qwen3_natural(ctx_for_llm, text, chat_id=chat_id, high_value=True)
 
         if not response:
             if is_mentioned:
@@ -13705,7 +13765,7 @@ async def handle_group_ai(event):
                 if _should_funnel_to_pm(chat_id, sender_id):
                     await asyncio.sleep(random.uniform(4, 10))
                     ctx_for_funnel = "\n".join([t for _, t in list(group_exchange_history[chat_id])[-6:]])
-                    funnel_msg = await generate_pm_funnel_msg(ctx_for_funnel, count)
+                    funnel_msg = await generate_pm_funnel_msg(ctx_for_funnel, count, chat_id=chat_id)
                     if funnel_msg and is_high_quality_natural(funnel_msg):
                         await event.reply(funnel_msg)
                         _mark_funnel_sent(chat_id, sender_id)
@@ -13750,8 +13810,18 @@ def _mark_funnel_sent(group_id: int, user_id: int):
     _user_conv_tracker[key]["last_funnel"] = time.time()
     _user_conv_tracker[key]["count"] = 0  # reset so funnel doesn't repeat every reply
 
-async def generate_pm_funnel_msg(recent_ctx: str, exchange_count: int = 3) -> str:
-    """Generate a natural PM invitation. Uses template pool (instant, reliable)."""
+async def generate_pm_funnel_msg(recent_ctx: str, exchange_count: int = 3, chat_id: int = None) -> str:
+    """Model-directed natural PM invitation (intelligent, context-aware, low pressure).
+    Falls back to strong varied templates only if model unavailable.
+    """
+    try:
+        hint = f"بعد از {exchange_count} تبادل مفید، یک جمله خیلی طبیعی و محاوره‌ای پیشنهاد بده که کاربر رو آروم به پیام خصوصی دعوت کنه. زمینه:\n{recent_ctx[:300] if recent_ctx else 'صحبت مفید در مورد دارو/ارسال/پرداخت'}"
+        resp = await call_qwen3_natural([recent_ctx] if recent_ctx else [], hint, chat_id=chat_id, high_value=True)
+        if resp and is_high_quality_natural(resp) and len(resp) < 220:
+            return resp
+    except Exception:
+        pass
+    # Strong fallback (still professional)
     return random.choice(_PM_INVITE_LINES)
 
 
@@ -13896,25 +13966,35 @@ async def group_observer_task():
                             continue
 
                         def _msg_score(m):
-                            txt = m.text.lower()
-                            score = 0
+                            txt = (m.text or "").lower()
+                            score = 0.0
                             if '?' in txt or '؟' in txt:
+                                score += 5
+                            if any(kw in txt for kw in ['دارو', 'ریتالین', 'اوزمپیک', 'مودافینیل', 'انسولین', 'ترامادول', 'کونسرتا']):
                                 score += 4
-                            if any(kw in txt for kw in ['دارو', 'ریتالین', 'اوزمپیک', 'مودافینیل', 'انسولین', 'ترامادول']):
+                            if any(kw in txt for kw in ['کریپتو', 'usdt', 'پرداخت', 'ارسال', 'خرید', 'سفارش']):
                                 score += 3
-                            if any(kw in txt for kw in ['کریپتو', 'usdt', 'پرداخت', 'ارسال', 'خرید']):
-                                score += 2
-                            if any(kw in txt for kw in ['مهاجرت', 'ترکیه', 'دبی', 'کانادا', 'ویزا']):
-                                score += 2
-                            if any(kw in txt for kw in ['کمک', 'راهنما', 'نمیدونم', 'مشکل', 'سوال']):
-                                score += 2
-                            score += min(len(txt) / 60, 2.5)
+                            if any(kw in txt for kw in ['مهاجرت', 'ترکیه', 'دبی', 'کانادا', 'ویزا', 'اقامت']):
+                                score += 2.5
+                            if any(kw in txt for kw in ['کمک', 'راهنما', 'نمیدونم', 'مشکل', 'سوال', 'تجربه', 'نظرت']):
+                                score += 2.5
+                            # personal / story signals (high PM conversion potential)
+                            if any(kw in txt for kw in ['من', 'دوست', 'برام', 'گرفتم', 'استفاده', 'تست']):
+                                score += 1.5
+                            score += min(len(txt) / 55, 3.0)
+                            # recency bonus already filtered
+                            # strategist boost for "very intelligent" target selection (max PM chance)
+                            try:
+                                if USE_AI_CORE and _strategist:
+                                    dec = _strategist(txt)
+                                    score += min(dec.get('score', 0) * 0.35, 2.5)
+                            except:
+                                pass
                             return score
 
                         candidate_msgs.sort(key=_msg_score, reverse=True)
                         target_msg = candidate_msgs[0]
-                        # Only reply if score is decent (avoid junk messages)
-                        if _msg_score(target_msg) < 2:
+                        if _msg_score(target_msg) < 2.5:
                             continue
 
                         target_text = target_msg.text.strip()
@@ -13923,7 +14003,26 @@ async def group_observer_task():
                         recent_ctx = await fetch_recent_group_context(client, gid, limit=8)
                         ctx_list = [recent_ctx] + list(group_chat_memory[gid])[-3:]
 
-                        resp = await call_qwen3_natural(ctx_list, target_text, chat_id=gid)
+                        # Strategist for truly intelligent random selection + style (max PM chance)
+                        strat = {}
+                        if USE_AI_CORE and _strategist:
+                            try:
+                                strat = _strategist(target_text, recent_ctx, get_group_notes(gid) or "")
+                                if not strat.get('should_engage', True):
+                                    continue
+                            except Exception:
+                                pass
+
+                        # Inject professional per-user memory for continuity
+                        try:
+                            user_ctx = get_user_context(gid, target_uid)
+                            if user_ctx:
+                                ctx_list = [user_ctx] + ctx_list
+                        except Exception:
+                            pass
+
+                        # high_value + full pipeline (director will use style if provided)
+                        resp = await call_qwen3_natural(ctx_list, target_text, chat_id=gid, high_value=True)
 
                         if resp and is_high_quality_natural(resp) and len(resp) > 10 and not _is_repetitive(gid, resp):
                             await asyncio.sleep(random.uniform(20, 70))
@@ -13934,13 +14033,19 @@ async def group_observer_task():
                             _record_bot_output(gid, resp)
                             group_exchange_history[gid].append(("bot", resp))
 
+                            # More professional memory update
+                            try:
+                                update_user_memory(gid, target_uid, target_text[:50])
+                            except Exception:
+                                pass
+
                             count = _track_user_exchange(gid, target_uid)
                             log_ai_response(f"PROACTIVE uid={target_uid} gid={gid} ex={count}", target_text[:60], resp)
 
                             if _should_funnel_to_pm(gid, target_uid):
                                 await asyncio.sleep(random.uniform(6, 18))
                                 ctx_for_funnel = "\n".join([t for _, t in list(group_exchange_history[gid])[-5:]])
-                                funnel_msg = await generate_pm_funnel_msg(ctx_for_funnel, count)
+                                funnel_msg = await generate_pm_funnel_msg(ctx_for_funnel, count, chat_id=gid)
                                 if funnel_msg and is_high_quality_natural(funnel_msg):
                                     await client.send_message(gid, funnel_msg, reply_to=target_msg.id)
                                     _mark_funnel_sent(gid, target_uid)

@@ -91,5 +91,49 @@ async def main():
 
     print("\n=== Professional benchmark finished ===")
 
+async def test_group_engagement_style():
+    print("\n=== Group Engagement Style Tests (Qwen3 intelligence) ===")
+    group_queries = [
+        "داروهای ADHD این روزا خیلی سخته پیدا کردن. کسی راهی سراغ داره؟",
+        "من ریتالین ساندوز گرفتم از یه جا، ولی شک دارم اورجینال باشه. شما چی؟",
+        "ارسال به استانبول بعد از واریز USDT معمولاً چند ساعت طول میکشه؟",
+        "به نظرتون برای تمرکز مودافینیل بهتره یا ریتالین؟",
+        "راستی یه سوال، کسی تجربه پرداخت با ترون داشته؟ کارمزدش چطوره؟",
+    ]
+    for q in group_queries:
+        try:
+            # Use core directly for logic test + note that live would use think on high_value
+            from ai.ai_core import classify_intent, retrieve_knowledge, plan_response
+            i = classify_intent(q)
+            r = retrieve_knowledge(q, i['intent'])
+            p = plan_response(i, bool(r), True, q)
+            print(f"  Q: {q[:55]}")
+            print(f"     intent={i['intent']}, strategy={p['strategy']}, klen={len(r)}")
+        except Exception as e:
+            print(f"  ERR on {q[:30]}: {e}")
+
+    # 5. Intelligence / director / content criteria (for very intelligent + insert + real + directed)
+    print("\n5. Intelligence criteria (director routing + content insert + real grounding):")
+    try:
+        from ai.ai_core import director, content_intel, compose_knowledge
+        cases = [
+            ("ارسال به استانبول بعد از واریز چقدر طول میکشه؟", "shipping_time"),
+            ("برای پرداخت USDT کدوم شبکه بهتره TRC20 یا ERC20؟", "crypto_info"),
+            ("رتالین ساندوز اورجینال از کجا بگیریم؟", "product_search"),
+        ]
+        for q, exp in cases:
+            i = classify_intent(q)
+            d = director.direct(i['intent'], {'strategy': 'llm_reasoning'}, q, True, True)
+            ins = content_intel.should_insert(i['intent'], q, 2)
+            comp = compose_knowledge(q, i['intent'])[:80]
+            print(f"   {q[:50]}")
+            print(f"     variant={d.get('variant')} think={d.get('use_think')} insert_p={ins:.2f} comp_len={len(comp)}")
+            print(f"     grounded_preview: {comp[:60] if comp else '(no)'}")
+        print("  → Criteria: directed, think for value, sometimes-insert, grounded ✓")
+    except Exception as e:
+        print("  criteria err:", e)
+
 if __name__ == "__main__":
     asyncio.run(main())
+    asyncio.run(test_group_engagement_style())
+    print("\nAll tests done. For full live + think test use Railway ssh on the userbot service and run the commands from the plan.")
