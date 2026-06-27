@@ -267,64 +267,77 @@ def _persian_normalize(t: str) -> str:
     return t.strip()
 
 def is_high_quality_natural(text: str) -> bool:
-    if not text or len(text) < 10 or len(text) > 700:
+    if not text or len(text) < 8 or len(text) > 900:
         return False
     t = _persian_normalize(text)
-    # Must have verb-ish ending or proper sentence end
-    ends = ('.', '!', '؟', '»', '،', '…', '"', ')', ':', '-')
-    verb_endings = (
-        'می‌شود', 'می‌کند', 'دارد', 'است', 'هستند', 'می‌توان', 'می‌باشد',
-        'شود', 'کنید', 'هست', 'بگیرید', 'میشه', 'میکنه', 'داره', 'بودم',
-        'بوده', 'کرده', 'شده', 'میگن', 'میدونم', 'میدونی', 'میره', 'بشه',
-        'کنم', 'کنه', 'کنیم', 'بکنید', 'بکنم', 'بده', 'بگو', 'بگید',
-        'هستی', 'هستیم', 'ندارم', 'ندارید', 'دارین', 'میتونی', 'میتونم',
-        'میدونن', 'باشه', 'باشد', 'نداری', 'میکنم', 'میشم', 'میکنیم',
-        'بیشتره', 'بهتره', 'سریعتره', 'کمتره', 'راحتره', 'مهمه', 'درسته',
-        'میرسه', 'میاد', 'اومده', 'گفته', 'داده', 'نمیدونم', 'بپرس', 'ببین',
-    )
-    if not (any(t.endswith(c) for c in ends) or any(t.endswith(v) for v in verb_endings)):
-        # Allow if response is a complete-looking sentence with Persian content and a verb mid-sentence
-        has_persian = bool(_re.search(r'[آ-ی]', t))
-        has_verb_mid = bool(_re.search(
-            r'(می‌|میشه|میکنه|داره|هست|است|کرد|شد|گفت|دید|رفت|خواست|میره|میاد)', t
-        ))
-        if not (has_persian and has_verb_mid and len(t) > 25):
-            return False
+    # Must contain Persian characters
+    if not _re.search(r'[آ-ی]', t):
+        return False
+    # Must contain a verb form somewhere (broad — catches almost all natural replies)
+    verb_mid = bool(_re.search(
+        r'(می‌|میشه|میکنه|داره|هست|است|کرد|شد|گفت|دید|رفت|خواست|میره|میاد|'
+        r'میگم|میدونم|میتونم|نمیدونم|بگید|بپرس|ببین|کنید|شده|داده|گفته|اومده|'
+        r'دارند|هستند|داریم|میخوام|میگه|میگن|باشه|باشد|هستی|میرسه|میکنم|میشم)',
+        t
+    ))
+    has_persian_content = len(_re.findall(r'[آ-ی]', t)) >= 5
+    if not (verb_mid or has_persian_content):
+        return False
     # No prompt garbage leaking into output
-    if any(bad in t[:40] for bad in ('قوانین', 'راهنما', 'نمونه خروجی', 'خروجی:', 'ساختار:', 'دستورالعمل', '۱. فارسی')):
+    if any(bad in t[:60] for bad in ('قوانین:', 'نمونه خروجی', 'خروجی:', 'ساختار:', 'دستورالعمل:', 'قانون ۱')):
         return False
-    # Too salesy / list spam
+    # Too structured / list spam (need 3+ markers)
     spam_markers = ['۱)', '۲)', '۳)', '۴)', '📌', 'برای سفارش', 'لطفاً به صورت دقیق']
-    if sum(1 for m in spam_markers if m in t) >= 2:
+    if sum(1 for m in spam_markers if m in t) >= 3:
         return False
-    # Garbled nonsense
-    if 'بازیکن' in t or 'فولوور شما' in t.lower() or 'AI assistant' in t:
+    # Garbled nonsense / training artifacts
+    garbage = ['بازیکن', 'فولوور شما', 'AI assistant', 'User:', 'Assistant:', 'Human:']
+    if any(g in t for g in garbage):
         return False
-    # Reject pure AI preamble
-    bad_starts = ('البته!', 'بله!', 'حتماً!', 'قطعاً!', 'Sure!', 'Of course!')
+    # Reject English robotic preamble
+    bad_starts = ('Sure!', 'Of course!', 'Certainly!', 'I am an AI', 'As an AI')
     if any(t.startswith(b) for b in bad_starts):
         return False
     return True
 
+# Formal → casual Persian (ported from web3test ai_service._clean_persian_text)
+_FORMAL_TO_CASUAL = {
+    'می‌باشد': 'هست', 'نمی‌باشد': 'نیست', 'می‌گردد': 'میشه',
+    'می‌شود': 'میشه', 'نمی‌شود': 'نمیشه', 'می‌توان': 'میشه',
+    'می‌بایست': 'باید', 'می‌توانید': 'میتونید',
+    'استفاده نمایید': 'استفاده کنید', 'مراجعه نمایید': 'مراجعه کنید',
+    'توجه فرمایید': 'دقت کنید', 'لازم به ذکر است': 'باید بگم',
+    'توصیه می‌گردد': 'پیشنهاد میکنم',
+    'می‌گویم': 'میگم', 'می‌دانم': 'میدونم', 'می‌دانید': 'میدونید',
+    'نمی‌دانم': 'نمیدونم', 'می‌خواهم': 'میخوام',
+}
+
 def _clean_natural(text: str) -> str:
     if not text:
         return text
-    text = _re.sub(r'<think>.*?</think>', '', text, flags=_re.DOTALL)
-    text = _re.sub(r'</?think>', '', text)
+    # Strip Qwen3 thinking blocks FIRST (before any quality check)
+    text = _re.sub(r'<think>[\s\S]*?</think>', '', text)
+    text = _re.sub(r'</?think[^>]*>', '', text)
+    # Strip markdown artifacts
     text = _re.sub(r'#{1,6}\s+', '', text)
     text = _re.sub(r'\*{2,}([^*]+)\*{2,}', r'\1', text)
     text = _re.sub(r'[-─═]{3,}', '', text)
+    text = _re.sub(r'`[^`]*`', '', text)
+    # Fix brand name variations
     fixes = {
         'مدفارماوب': 'فارماوب', 'مد فارماوب': 'فارماوب',
-        'Medpharmaweb': 'PharmaWeb', 'medpharmaweb': 'فارماوب',
-        'iMed': 'فارماوب', 'آی\u200cمد': 'فارماوب',
+        'Medpharmaweb': 'medpharmaweb.com', 'MedPharmaWeb': 'medpharmaweb.com',
+        'iMed': 'فارماوب', 'آی‌مد': 'فارماوب',
     }
     for w, r in fixes.items():
         text = text.replace(w, r)
+    # Formal → casual
+    for formal, casual in _FORMAL_TO_CASUAL.items():
+        text = text.replace(formal, casual)
     text = _re.sub(r'\n{3,}', '\n\n', text)
     lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
-    if len(lines) > 6:
-        lines = lines[:6]
+    if len(lines) > 8:
+        lines = lines[:8]
     return _persian_normalize('\n'.join(lines))
 
 # --- AI response logger (for verification) ---
@@ -12770,22 +12783,35 @@ class ProfessionalGroupResponder:
             retrieved=retrieved or "(اطلاعات مرتبط یافت نشد)",
         )
 
-        # LLM call — temperature slightly higher for natural colloquial Persian
+        # LLM call with few-shot examples for consistent natural Persian tone
+        _few_shot_p = [
+            {"role": "user", "content": "سلام"},
+            {"role": "assistant", "content": "سلام! چطوری؟ چیزی میخوای بدونی؟"},
+            {"role": "user", "content": "ریتالین اصل کجا پیدا میشه؟"},
+            {"role": "assistant", "content": "توی فارماوب هست، اروپایی و با هولوگرام. نسخه پزشک لازمه."},
+            {"role": "user", "content": "ارسال به استانبول چقدر طول میکشه؟"},
+            {"role": "assistant", "content": "بعد از تأیید پرداخت معمولاً زیر ۸ ساعته. بسته‌بندی محرمانه‌ست."},
+            {"role": "user", "content": "USDT چطور پرداخت کنم؟"},
+            {"role": "assistant", "content": "TRC20 بهتره — کارمزد کمه. نوبیتکس یا والکس خوبن."},
+            {"role": "user", "content": "اوزمپیک چیه؟"},
+            {"role": "assistant", "content": "سماگلوتاید برای کنترل اشتها و کاهش وزنه. حتماً باید پزشک تجویز کنه."},
+        ]
         payload = {
             "model": self.qwen_model,
             "messages": [
                 {"role": "system", "content": sys_p},
+                *_few_shot_p,
                 {"role": "user", "content": user_text},
             ],
             "stream": False,
             "think": False,
             "options": {
-                "temperature": 0.42,
-                "num_predict": 220,
+                "temperature": 0.26,
+                "num_predict": 260,
                 "num_ctx": 4096,
-                "top_p": 0.88,
-                "repeat_penalty": 1.11,
-                "top_k": 45,
+                "top_p": 0.82,
+                "repeat_penalty": 1.20,
+                "top_k": 28,
             },
         }
         raw = ""
@@ -12820,7 +12846,7 @@ class ProfessionalGroupResponder:
                     "messages": [{"role": "user", "content": crit_prompt}],
                     "stream": False,
                     "think": False,
-                    "options": {"temperature": 0.35, "num_predict": 200, "repeat_penalty": 1.05},
+                    "options": {"temperature": 0.22, "num_predict": 220, "repeat_penalty": 1.15},
                 }
                 async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as sess:
                     async with sess.post(f"{self.qwen_base}/api/chat", json=c_payload) as cr:
@@ -12914,46 +12940,22 @@ def retrieve_knowledge(query: str, intent: str = "") -> str:
     return "\n".join(out)
 
 NATURAL_GROUP_SYSTEM_PROMPT = (
-    "تو یک عضو واقعی و باهوش در یک گروه تلگرامی فارسی‌زبان هستی.\n"
-    "موضوع گروه: سلامت، داروهای اورجینال، مهاجرت، زندگی در خارج از کشور.\n"
-    "شخصیت تو: دانش خوبی داری، گرمی و صمیمی هستی، مثل یک دوست با تجربه جواب می‌دی.\n\n"
+    "تو یک ایرانی باتجربه در یک گروه تلگرامی هستی — نه ربات، نه دستیار.\n"
+    "موضوع: داروهای اورجینال، سلامت، کریپتو، مهاجرت.\n"
+    "شخصیت: دوستانه، صادق، مثل کسی که خودش تجربه داره.\n\n"
     "قوانین سخت:\n"
-    "۱. فارسی محاوره‌ای: «میگم» نه «می‌گویم»، «میدونم» نه «می‌دانم»، «میشه» نه «می‌شود».\n"
-    "۲. ۲ تا ۳ جمله کوتاه — بیشتر ممنوع. هر جمله باید فعل کامل داشته باشه.\n"
-    "۳. هیچ لیست، بولت، سرتیتر، ایموجی زیاد یا فرمت رسمی ممنوع.\n"
-    "۴. هیچ مقدمه مثل «البته»، «حتماً»، «می‌توانم بگویم» ممنوع — مستقیم شروع کن.\n"
-    "۵. اگر سوال مستقیماً درباره خرید/سایت/پرداخت نیست، نام سایت یا آدرس نده.\n"
-    "۶. فقط وقتی مستقیم سوال خرید پرسیدن: «برای اطلاعات بیشتر می‌تونی به medpharmaweb.com سر بزنی» — یه بار، خیلی ساده.\n"
-    "۷. تشخیص، دوز، تجویز — اکیداً ممنوع. فقط اطلاعات عمومی.\n"
-    "۸. اگر مطمئن نیستی، صادقانه بگو: «دقیقاً نمیدونم، ولی...»\n"
-    "۹. پیام‌های گروه را دقیق بخوان و جواب مرتبط بده. از موضوع فرار نکن.\n\n"
-    "اطلاعات پایه (فقط وقتی مرتبطه استفاده کن):\n"
+    "۱. فارسی محاوره‌ای: «میگم»، «میدونم»، «میشه» نه شکل رسمی.\n"
+    "۲. ۲ تا ۳ جمله کوتاه — بیشتر ممنوع.\n"
+    "۳. بدون لیست، بولت، ستاره، سرتیتر.\n"
+    "۴. مستقیم شروع کن — بدون «البته»، «حتماً»، «بله،» یا هر مقدمه‌ای.\n"
+    "۵. اگر مطمئن نیستی: «دقیقاً نمیدونم ولی...»\n"
+    "۶. فقط وقتی مستقیم سوال خرید پرسیدن سایت رو بگو: medpharmaweb.com\n\n"
+    "اطلاعات پایه (فقط وقتی مرتبطه):\n"
     + _SITE_KNOWLEDGE_FA + "\n" + _DRUG_KNOWLEDGE_FA + "\n\n"
-    "اطلاعات بازیابی‌شده مرتبط با سوال:\n{retrieved}\n\n"
-    "آخرین پیام‌های گروه (متن واقعی — حتماً از این استفاده کن تا پاسخ مرتبط باشه):\n{context}\n\n"
-    "پیام کاربر: {user_msg}\n\n"
-    "نمونه‌های پاسخ خوب:\n\n"
-    "کاربر: ریتالین اصل چطوره؟\n"
-    "پاسخ خوب: ریتالین اورجینال اروپایی کیفیتش خیلی بهتره از نسخه‌های محلی. ولی بازم پزشک باید تجویز کنه.\n\n"
-    "کاربر: ارسال به دبی چقدر وقت میبره؟\n"
-    "پاسخ خوب: معمولاً بعد از تأیید پرداخت زیر ۸ ساعت میرسه. بسته‌بندی هم کاملاً محرمانه‌ست.\n\n"
-    "کاربر: USDT رو از کجا بگیرم؟\n"
-    "پاسخ خوب: نوبیتکس و والکس معمولاً خوبن. TRC20 کارمزدش کمتره و تأییدش سریع‌تره.\n\n"
-    "کاربر: اوزمپیک برای کاهش وزن خوبه؟\n"
-    "پاسخ خوب: سماگلوتاید (اوزمپیک) برای کنترل اشتها استفاده میشه ولی حتماً باید با پزشک هماهنگ کنی چون عوارض داره.\n\n"
-    "کاربر: چطور سفارش بدم؟\n"
-    "پاسخ خوب: توی سایت دارو رو پیدا کن، به سبد اضافه کن، آدرس و ارز دیجیتال رو وارد کن و واریز کن. بعد تأیید ارسال میشه.\n\n"
-    "کاربر: ریتالین ساندوز با کونسرتا چه فرقی داره؟\n"
-    "پاسخ خوب: هر دو متیل‌فنیداتن ولی فرم رهش متفاوته. کونسرتا آهسته‌رهشه، ساندوز سریع‌الاثرتره. پزشک بهتر میتونه انتخاب کنه.\n\n"
-    "کاربر: مطمئنی اصله؟\n"
-    "پاسخ خوب: بله، محصولات اروپایی و آمریکایی با هولوگرام و کد batch هستن. می‌تونی batch رو آنلاین هم چک کنی.\n\n"
-    "کاربر: این جواب به سوالم نبود\n"
-    "پاسخ خوب: ببخشید، شاید درست متوجه نشدم. می‌تونی دوباره توضیح بدی چی میخوای بدونی؟\n\n"
-    "کاربر: برای بیش‌فعالی بزرگسال چی پیشنهاد میدی؟\n"
-    "پاسخ خوب: متیل‌فنیدات (ریتالین، کونسرتا) معمول‌ترین گزینه‌ست. ولی دوز و نوعش رو پزشک باید تعیین کنه چون شرایط هر کسی فرقه.\n\n"
-    "کاربر: مونجارو چیه؟\n"
-    "پاسخ خوب: تیرزپاتیده، شبیه اوزمپیک ولی روی دو هورمون تأثیر داره. برای دیابت و کاهش وزن استفاده میشه.\n\n"
-    "حالا پاسخ طبیعی و کوتاه بنویس — مستقیم شروع کن، بدون مقدمه:"
+    "اطلاعات بازیابی‌شده:\n{retrieved}\n\n"
+    "آخرین پیام‌های گروه (بخوان و مرتبط جواب بده):\n{context}\n\n"
+    "پیام: {user_msg}\n\n"
+    "پاسخ کوتاه و طبیعی (مستقیم شروع کن، بدون هیچ مقدمه):"
 )
 
 # Fast fallback (فقط برای mention بدون AI response — نه برای bypass کردن LLM)
@@ -13226,21 +13228,37 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
     )
 
     url = f"{QWEN3_BASE_URL}/api/chat"
+    # Few-shot examples teach the model tone and brevity (web3test pattern)
+    _few_shot = [
+        {"role": "user", "content": "سلام"},
+        {"role": "assistant", "content": "سلام! چطوری؟ چیزی میخوای بدونی؟"},
+        {"role": "user", "content": "ریتالین اصل کجا پیدا میشه؟"},
+        {"role": "assistant", "content": "توی فارماوب هست، اروپایی و با هولوگرام. البته نسخه پزشک لازمه."},
+        {"role": "user", "content": "ارسال به استانبول چقدر طول میکشه؟"},
+        {"role": "assistant", "content": "بعد از تأیید پرداخت معمولاً زیر ۸ ساعته. بسته‌بندی هم کاملاً محرمانه‌ست."},
+        {"role": "user", "content": "با USDT چطور پرداخت کنم؟"},
+        {"role": "assistant", "content": "TRC20 بهتره چون کارمزدش کمه. نوبیتکس یا والکس برای خرید تتر خوبن."},
+        {"role": "user", "content": "اوزمپیک برای کاهش وزن خوبه؟"},
+        {"role": "assistant", "content": "سماگلوتاید (اوزمپیک) برای کنترل اشتها استفاده میشه ولی پزشک باید تجویز کنه."},
+        {"role": "user", "content": "مطمئنی اصله؟"},
+        {"role": "assistant", "content": "بله، همه محصولات با هولوگرام و کد batch اروپایی هستن. می‌تونی batch رو آنلاین هم چک کنی."},
+    ]
     base_payload = {
         "model": QWEN3_MODEL,
         "messages": [
             {"role": "system", "content": sys_prompt},
+            *_few_shot,
             {"role": "user", "content": user_text},
         ],
         "stream": False,
         "think": False,
         "options": {
-            "temperature": 0.42,
-            "num_predict": 200,
+            "temperature": 0.26,
+            "num_predict": 260,
             "num_ctx": 4096,
-            "top_p": 0.88,
-            "top_k": 45,
-            "repeat_penalty": 1.12,
+            "top_p": 0.82,
+            "top_k": 28,
+            "repeat_penalty": 1.20,
             "num_thread": 4,
         },
     }
@@ -13249,7 +13267,7 @@ async def call_qwen3_natural(recent_ctx: list[str], user_text: str, chat_id: int
         try:
             payload = dict(base_payload)
             if attempt > 0:
-                payload["options"]["temperature"] = 0.42  # slight variety on retry
+                payload["options"]["temperature"] = 0.48  # raise temp on retry for variety
             timeout = aiohttp.ClientTimeout(total=GROUP_AI_TIMEOUT_SECONDS)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(url, json=payload) as resp:
