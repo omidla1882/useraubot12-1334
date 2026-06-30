@@ -82,10 +82,9 @@ def slog(*args, **kwargs):
         print(*args, **kwargs)
 
 # تنظیمات API
-api_id = 23517903
-api_hash = 'f9acbac0d745902c690ecf1eaf35efbe'
-session_name = 'my_session'
-
+api_id = 28652875
+api_hash = '97469594916750008690bb4a21e2ebab'
+session_name = 'my_session11228'
 # ═══════════════════════════════════════════════════════════
 # 🚀 تنظیمات بهینه‌شده عملکرد (RAILWAY OPTIMIZED v3.0)
 # ═══════════════════════════════════════════════════════════
