@@ -13012,7 +13012,6 @@ TEMPLATE_RESPONSES: Dict[str, list] = {
         "اگه سوالت ادامه داره، تو چت خصوصی سریع‌تر راهنمایی میکنم.",
         "جالبه، پیام بده بیشتر حرف بزنیم.",
     ],
-    ],
 }
 
 # Drug-pattern → template key mapping
