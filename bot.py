@@ -202,37 +202,43 @@ ENABLE_BROADCAST = False  # 🟢 ارسال پیام‌های تبلیغاتی �
 import re as _re  # local alias to avoid polluting top re if needed
 
 # --- Human simulation (from web3test/core/telegram_userbot.py, adapted) ---
-async def _simulate_human_delay(action: str = 'general'):
+async def _simulate_human_delay(action: str = 'general', msg_len: int = 40):
+    """More realistic variable human delay (length + time of day aware)."""
     if action == 'between_groups':
-        delay = random.uniform(180, 420)  # 3-7 min
+        delay = random.uniform(180, 420)
     elif action == 'typing':
-        delay = random.uniform(2.5, 9)
+        delay = random.uniform(2.8, 8.5)
+        if msg_len > 80:
+            delay += random.uniform(1.5, 3.5)
     elif action == 'reading':
-        delay = random.uniform(1.5, 6)
+        delay = random.uniform(1.8, 7.0)
     elif action == 'pre_reply':
-        delay = random.uniform(1.8, 5)
+        delay = random.uniform(2.0, 6.0)
     else:
-        delay = random.uniform(0.8, 2.5)
-    await asyncio.sleep(delay)
+        delay = random.uniform(1.0, 3.0)
 
-async def simulate_read_and_type(client, chat):
+    hour = datetime.now().hour
+    if hour in (1,2,3,4,5,23):
+        delay *= random.uniform(1.15, 1.45)
+    await asyncio.sleep(max(0.7, delay))
+
+async def simulate_read_and_type(client, chat, msg_len: int = 40):
     """Simulate a human reading recent messages then typing before replying."""
     try:
-        # Read last few messages
         msgs = await client.get_messages(chat, limit=random.randint(4, 9))
         if msgs:
             await client.send_read_acknowledge(chat, msgs[-1])
-        await _simulate_human_delay('reading')
+        await _simulate_human_delay('reading', msg_len)
     except Exception:
         pass
     try:
         from telethon.tl.functions.messages import SetTypingRequest
         from telethon.tl.types import SendMessageTypingAction
         await client(SetTypingRequest(peer=chat, action=SendMessageTypingAction()))
-        await _simulate_human_delay('typing')
+        await _simulate_human_delay('typing', msg_len)
     except Exception:
         pass
-    await _simulate_human_delay('pre_reply')
+    await _simulate_human_delay('pre_reply', msg_len)
 
 # --- Context fetcher for natural replies ---
 async def fetch_recent_group_context(client, chat_id: int, limit: int = 8) -> str:
@@ -13160,33 +13166,32 @@ def retrieve_knowledge(query: str, intent: str = "") -> str:
 # Stronger system prompt modeled directly after the professional one that works well with Qwen3 in web3test.
 # Adapted for "experienced casual group peer" persona (not official support agent).
 GROUP_SYSTEM_PROMPT = (
-    "تو یه ایرانی ۳۰ ساله‌ای که عضو این گروه تلگرامی هستی. نه فروشنده، نه ربات، نه پشتیبانی — فقط یه آدم معمولی باتجربه.\n"
-    "چیزایی که بلدی: ریتالین و کونسرتا (متیل‌فنیدات اروپایی)، اوزمپیک و مونجارو (کاهش وزن/دیابت)، مودافینیل (تمرکز)، پرداخت با USDT روی TRC20 (کم‌کارمزد)، ارسال محرمانه به تهران/استانبول/دبی/تورنتو در ۴-۸ ساعت.\n"
-    "قانون اصلی: ۱ تا ۳ جمله کوتاه و محاوره‌ای. مثل حرف زدن با دوست. از «آره»، «خودم گرفتم»، «معمولاً»، «بستگه داره»، «تجربه‌ام» استفاده کن.\n"
-    "هرگز: لیست، «البته»، «حتماً»، «در نتیجه»، جملات رسمی، پرانتز توضیح، ادعای ۱۰۰٪، هالوسیناسیون برند یا شبکه. اگر جواب نمیدونی بگو «دقیق نمیدونم» و یه سوال بپرس.\n"
-    "هدف: طبیعی حرف بزن — کاربر باید احساس کنه با یه آدم واقعی حرف میزنه نه ربات. اگه سوال ادامه داشت یه جمله کوتاه اضافه کن که بخواد بیشتر باهات حرف بزنه."
+    "تو یه ایرانی ۳۰-۳۵ ساله‌ای که عضو این گروه تلگرامی هستی و تجربه واقعی خرید/ارسال/پرداخت کریپتو داری. نه فروشنده، نه ربات، نه ادمین — فقط یه آدم معمولی باتجربه که کمک میکنه.\n"
+    "دانش واقعی‌ات: ریتالین/کونسرتا اورجینال اروپایی (متیل‌فنیدات)، اوزمپیک/مونجارو (سماگلوتاید و تیرزپاتید)، مودافینیل برای تمرکز، پرداخت امن با USDT روی TRC20 (کارمزد پایین)، ارسال محرمانه به تهران (زیر ۴ساعت)، استانبول/دبی/تورنتو (۴-۸ ساعت).\n"
+    "سبک جواب: ۲ تا ۵ خط محاوره‌ای کامل و طبیعی. مثل حرف زدن با دوست تو گروه. از «آره»، «خودم چند بار گرفتم»، «معمولاً ۴-۸ ساعت طول میکشه»، «بستگه داره»، «تجربه‌ام این بود» استفاده کن. جمله‌ها کامل باشن و با نقطه یا سوال تموم بشن.\n"
+    "هرگز نکن: لیست شماره‌دار، «البته»، «حتماً»، «در نتیجه»، جملات رسمی یا تبلیغاتی مستقیم، پرانتز توضیح طولانی، ادعای ۱۰۰٪، هالوسیناسیون برند/شبکه/قیمت. اگر دقیق نمیدونی بگو «دقیق نمیدونم ولی...» و یه سوال سبک بپرس.\n"
+    "هدف: کاربر احساس کنه با یه انسان واقعی حرف میزنه که بلده. بعد از ۲-۳ تبادل ارزشمند و طبیعی، میتونی خیلی ملایم پیشنهاد بدی «جزئیاتشو خصوصی بگو ببینم»."
 )
 
 def build_group_messages(user_text: str, retrieved: str, recent_ctx: list, exchange_lines: list, notes: str, mem_ctx: str) -> list:
-    """Build lean messages list — max 2 system messages.
-
-    Raw group context is intentionally NOT injected — it causes hallucination when the bot
-    is in off-topic groups (logo design, fortune telling, etc.). The model should respond
-    to the user's actual message using its persona, not echo group noise.
+    """Build stronger messages for complete natural multi-line replies.
+    Prioritize: persona + grounded knowledge + last exchanges + few-shots style.
     """
     messages = [{"role": "system", "content": GROUP_SYSTEM_PROMPT}]
 
     ctx_parts = []
     if retrieved:
-        ctx_parts.append(f"اطلاعات:\n{retrieved[:280]}")
-    # Only include bot-user exchange history, never raw group messages
+        ctx_parts.append(f"دانش مرتبط (زمینی):\n{retrieved[:320]}")
     if exchange_lines:
-        ctx_parts.append("مکالمه قبلی:\n" + "\n".join(exchange_lines[-2:]))
+        ctx_parts.append("مکالمه اخیر با همین کاربر:\n" + "\n".join(exchange_lines[-3:]))
+    if notes:
+        ctx_parts.append("نکات گروه:\n" + notes[:160])
 
     if ctx_parts:
-        messages.append({"role": "system", "content": "\n\n".join(ctx_parts)[:450]})
+        messages.append({"role": "system", "content": "\n\n".join(ctx_parts)[:520]})
 
-    messages.append({"role": "user", "content": user_text})
+    # Add a light instruction for completeness
+    messages.append({"role": "user", "content": user_text + "\n(جواب کامل، طبیعی، ۲-۵ خط محاوره‌ای با فعل و نقطه. اگر لازم بود یه سوال سبک اضافه کن.)"})
     return messages
 
 
@@ -13252,6 +13257,8 @@ try:
         content_intel as _content_intel,
         decide_engagement as _strategist,
         generate_natural_reply_local as _fast_local_gen,
+        repair_llm_output as _core_repair,
+        pick_best_or_fallback as _core_pick,
     )
     USE_AI_CORE = True
 except Exception as _aicore_err:
@@ -13532,22 +13539,23 @@ async def call_qwen3_natural(recent_ctx: list, user_text: str, chat_id: int = No
     except Exception:
         pass
 
-    # ── 4. LLM call (NO think=True — too slow for 1.7b on CPU, always times out) ─
+    # ── 4. LLM call — stronger params for complete natural answers (Qwen3 1.7b)
     llm_result = None
     try:
-        exchange_lines = [f"{r}: {t[:80]}" for r, t in list(group_exchange_history.get(chat_id, []))[-3:]]
+        exchange_lines = [f"{r}: {t[:90]}" for r, t in list(group_exchange_history.get(chat_id, []))[-3:]]
         notes = get_group_notes(chat_id) if chat_id else ""
         messages = build_group_messages(
             user_text=user_text,
             retrieved=retrieved or "",
-            recent_ctx=[],  # raw ctx causes hallucination on off-topic groups
+            recent_ctx=[],
             exchange_lines=exchange_lines,
             notes=notes,
             mem_ctx="",
         )
-        temp = 0.40
-        max_tokens = 110
-        num_ctx = 2048  # smaller = faster on CPU
+        # Higher capacity for multi-line complete Persian replies
+        temp = 0.39
+        max_tokens = 260
+        num_ctx = 3200
 
         raw = ""
         if _qwen3_client is not None:
@@ -13555,21 +13563,21 @@ async def call_qwen3_natural(recent_ctx: list, user_text: str, chat_id: int = No
                 res = await asyncio.wait_for(
                     _qwen3_client.chat(messages, max_tokens=max_tokens, temperature=temp,
                                        use_think=False, num_ctx=num_ctx),
-                    timeout=22.0
+                    timeout=55.0
                 )
                 raw = (res.get("content") or res.get("raw") or "").strip()
             except (asyncio.TimeoutError, Exception):
                 pass
 
-        # Direct HTTP fallback if client unavailable
+        # Direct HTTP fallback
         if not raw:
             try:
-                http_timeout = aiohttp.ClientTimeout(total=22)
+                http_timeout = aiohttp.ClientTimeout(total=55)
                 async with aiohttp.ClientSession(timeout=http_timeout) as s:
                     pp = {
                         "model": QWEN3_MODEL, "messages": messages, "stream": False, "think": False,
                         "options": {"temperature": temp, "num_predict": max_tokens, "num_ctx": num_ctx,
-                                    "repeat_penalty": 1.18, "top_p": 0.85, "top_k": 40}
+                                    "repeat_penalty": 1.16, "top_p": 0.86, "top_k": 38}
                     }
                     async with s.post(f"{QWEN3_BASE_URL}/api/chat", json=pp) as rr:
                         if rr.status == 200:
@@ -13581,29 +13589,55 @@ async def call_qwen3_natural(recent_ctx: list, user_text: str, chat_id: int = No
         if raw:
             cleaned = _clean_natural(raw)
             cleaned = _repair_group_output(cleaned)
-            if cleaned and is_high_quality_natural(cleaned):
+            # Mandatory repair from ai_core if available
+            try:
+                from ai.ai_core import repair_llm_output as _repair_core
+                cleaned = _repair_core(cleaned)
+            except Exception:
+                pass
+            if cleaned and is_high_quality_natural(cleaned) and len(cleaned) >= 12:
                 llm_result = cleaned
 
     except Exception:
         pass
 
-    # ── 5. Rank candidates: LLM > fast_local > template ─────────────────────
+    # ── 5. Strong multi-pass quality gate + repair (core of "no low-quality / incomplete")
     hist = list(group_exchange_history.get(chat_id, []))
     rep_fn = (_core_is_repeated if (USE_AI_CORE and _core_is_repeated) else is_repeated_response)
 
     result = None
-    for candidate in [llm_result, fast_local, template]:
-        if not candidate:
+    candidates = [c for c in [llm_result, fast_local, template] if c]
+
+    for candidate in candidates:
+        if not candidate or len(candidate.strip()) < 10:
             continue
-        if not is_high_quality_natural(candidate):
+        # repair again
+        c2 = _repair_group_output(_clean_natural(candidate))
+        try:
+            from ai.ai_core import repair_llm_output as _r, pick_best_or_fallback as _pick
+            c2 = _r(c2)
+        except Exception:
+            pass
+        if not is_high_quality_natural(c2):
             continue
         try:
-            if rep_fn(candidate, hist):
+            if rep_fn(c2, hist):
                 continue
         except Exception:
             pass
-        result = candidate
-        break
+        # final length/completeness guard
+        if 12 <= len(c2) <= 700 and ('.' in c2 or '؟' in c2 or '!' in c2 or c2.endswith('؟')):
+            result = c2
+            break
+
+    # If still weak after LLM, try one more grounded compose as rescue
+    if not result and retrieved:
+        try:
+            rescue = (retrieved.split('\n')[0] if retrieved else "").strip()
+            if rescue and len(rescue) > 15 and is_high_quality_natural(rescue):
+                result = rescue[:280]
+        except Exception:
+            pass
 
     # ── 6. Diverse fallback pool — never returns the same hardcoded text ─────
     if not result:
@@ -13710,7 +13744,7 @@ async def handle_group_ai(event):
             responder.add_turn(chat_id, 'user', text)
 
         # Human-like behavior before replying
-        await simulate_read_and_type(client, event.chat)
+        await simulate_read_and_type(client, event.chat, len(text))
 
         # Build context: fresh group messages (passed as recent_ctx) +
         # per-user exchange history (handled inside call_qwen3_natural via group_exchange_history)
@@ -13789,30 +13823,39 @@ def _mark_funnel_sent(group_id: int, user_id: int):
     _user_conv_tracker[key]["count"] = 0  # reset so funnel doesn't repeat every reply
 
 async def generate_pm_funnel_msg(recent_ctx: str, exchange_count: int = 3, chat_id: int = None) -> str:
-    """Model-directed natural PM invitation (intelligent, context-aware, low pressure).
-    Multiple strategies. Uses full pipeline + grounding.
+    """Strongly contextual, low-pressure, warm PM suggestion after real value exchange.
+    Uses full high_value pipeline. Very human.
     """
-    ctx = (recent_ctx or '')[:280]
-    hint = f"بعد از {exchange_count} تبادل واقعی با یه کاربر، یه جمله خیلی طبیعی و کوتاه بنویس که پیشنهاد بدی خصوصی ادامه بدیم. زمینه: {ctx or 'حرف در مورد دارو/ارسال/پرداخت'}. فقط یه جمله محاوره‌ای مثل حرف زدن با دوست."
+    ctx = (recent_ctx or '')[:320]
+    hint = (
+        f"بعد از {exchange_count} تبادل واقعی و مفید با کاربر، فقط یک جمله کوتاه و خیلی طبیعی بنویس که پیشنهاد بدی "
+        f"جزئیات رو خصوصی ادامه بدیم. زمینه دقیق: {ctx or 'حرف در مورد ارسال/پرداخت/دارو'}. "
+        "لحن گرم و دوستانه مثل حرف زدن با دوست. هیچ تبلیغ مستقیم، هیچ فشار. حداکثر ۱۴۰ کاراکتر."
+    )
     try:
         resp = await call_qwen3_natural([ctx] if ctx else [], hint, chat_id=chat_id, high_value=True)
-        if resp and is_high_quality_natural(resp) and 8 < len(resp) < 200:
+        if resp and is_high_quality_natural(resp) and 15 < len(resp) < 180:
             return resp
     except Exception:
         pass
-    # Context-aware intelligent fallbacks (no generic spam)
-    if any(x in ctx.lower() for x in ['ارسال', 'استانبول', 'دبی', 'تورنتو']):
-        opts = ["جزئیات ارسال و زمان‌بندی رو خصوصی بهتر میتونم بگم، پیام بده", "برای شهرت بگو، تو خصوصی سریع‌تر راهنمایی میکنم"]
-    elif any(x in ctx.lower() for x in ['پرداخت', 'usdt', 'tether', 'ترون']):
-        opts = ["آدرس و شبکه دقیق رو خصوصی بگو ببینم درست باشه", "یه نکته پرداخت دارم که اینجا نمیشه راحت گفت، پیام بده"]
-    else:
-        opts = [
-            "راستش اینجا شلوغه، اگه میخوای بیشتر حرف بزنیم خصوصی پیام بده",
-            "جزئیاتش بهتره خصوصی بگم، پیام بده راحت‌تر حرف میزنیم",
-            "اگه سوالت ادامه داره تو چت خصوصی سریع‌تر راهنمایی میکنم",
-            "یه چیزایی هست که بهتره خصوصی بگم، پیامم بده",
-        ]
-    return random.choice(opts)
+
+    # Very contextual safe fallbacks (only when relevant)
+    cl = ctx.lower()
+    if any(x in cl for x in ['ارسال', 'استانبول', 'دبی', 'تورنتو', 'تهران']):
+        return random.choice([
+            "جزئیات ارسال و زمان دقیق برای شهرت رو خصوصی بگو ببینم",
+            "برای ارسال به شهرت بهتره خصوصی حرف بزنیم، پیام بده",
+        ])
+    if any(x in cl for x in ['پرداخت', 'usdt', 'tether', 'ترون', 'کریپتو']):
+        return random.choice([
+            "آدرس و شبکه دقیق پرداخت رو خصوصی بگو چک کنم",
+            "یه نکته مهم پرداخت دارم که اینجا نمیشه گفت، پیام بده",
+        ])
+    return random.choice([
+        "اینجا شلوغه، اگه میخوای بیشتر حرف بزنیم خصوصی پیام بده",
+        "جزئیاتش بهتره خصوصی بگم، پیام بده راحت‌تر حرف میزنیم",
+        "سوالت ادامه داره؟ تو چت خصوصی سریع‌تر راهنمایی میکنم",
+    ])
 
 
 # ── Strengthened Proactive Natural Engagement (observer) ─────────────────────

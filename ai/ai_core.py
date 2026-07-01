@@ -667,14 +667,16 @@ def compose_knowledge(query: str, intent: str = "") -> str:
     return compose_knowledge_for_prompt(query, intent) or retrieve_knowledge(query, intent)
 
 # expose new
-__all__ = ['classify_intent', 'retrieve_knowledge', 'compose_knowledge_for_prompt', 'compose_knowledge_response', 'plan_response', 'is_repeated_response', 'get_drug_context_snippet', 'match_drug_family', 'get_family_info', 'decide_engagement', 'ModelDirector', 'ContentIntelligence', 'is_weak_llm_output', 'get_few_shots_for_prompt']
+__all__ = ['classify_intent', 'retrieve_knowledge', 'compose_knowledge_for_prompt', 'compose_knowledge_response', 'plan_response', 'is_repeated_response', 'get_drug_context_snippet', 'match_drug_family', 'get_family_info', 'decide_engagement', 'ModelDirector', 'ContentIntelligence', 'is_weak_llm_output', 'get_few_shots_for_prompt', 'repair_llm_output', 'pick_best_or_fallback']
 
 
 # ── Lightweight Conversation Strategist (Phase 2) ─────────────────────────────
 # Weak output guard (inspired by web3test model_guard)
 WEAK_LLM_PATTERNS = [
-    r'متأسفم.*نمی\s*توانم', r'as an ai', r'language model', r'نمی\s*دانم', r"i don't know",
-    r'فقط\s*ترون', r'مدفارماوب', r'فقط بگو', r'لیست', r'^\s*۱\.',
+    r'متأسفم.*نمی\s*توانم', r'i\s*cannot\s*help', r'as\s*an\s*ai', r'language\s*model',
+    r'نمی\s*دانم', r"i\s*don't\s*know", r'فقط\s*ترون', r'only\s*tron',
+    r'مدفارماوب', r'\bimed\b', r'\bsara\b', r'فقط بگو', r'لیست', r'^\s*۱\.',
+    r'قطعا|حتما|۱۰۰٪|بدون شک|دقیقا همین',
 ]
 
 def is_weak_llm_output(text: str, language: str = 'fa') -> bool:
@@ -691,6 +693,44 @@ def is_weak_llm_output(text: str, language: str = 'fa') -> bool:
     if re.search(r'قطعا|حتما|۱۰۰٪|بدون شک|دقیقا همین', t):
         return True
     return False
+
+
+def repair_llm_output(text: str, language: str = 'fa') -> str:
+    """Strong repair for small-model hallucinations (port + extension from web3test model_guard)."""
+    if not text:
+        return text
+    # Brand fixes
+    text = text.replace('مدفارماوب', 'فارماوب')
+    text = re.sub(r'medpharmaweb|imed|sara', 'فارماوب', text, flags=re.I)
+    # "only tron" fix — we accept 8 cryptos
+    if re.search(r'فقط\s*ترون|only\s*tron', text, re.I):
+        if language == 'fa':
+            text = re.sub(r'فقط\s*ترون[^.\n]*', '۸ ارز دیجیتال قبول می‌کنیم (BTC، ETH، USDT روی TRC20، TRX، BNB، TON، SOL، DOGE)', text, flags=re.I)
+        else:
+            text = re.sub(r'only\s*tron[^.\n]*', 'We accept 8 cryptos (BTC, ETH, USDT on TRC20, etc.)', text, flags=re.I)
+    # Remove repetitive identical lines
+    lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
+    seen = set()
+    clean = []
+    for ln in lines:
+        norm = ln[:70].lower()
+        if norm not in seen:
+            seen.add(norm)
+            clean.append(ln)
+    text = '\n'.join(clean)
+    if len(text) > 650:
+        text = text[:650].rsplit(' ', 1)[0] + '…'
+    return text.strip()
+
+
+def pick_best_or_fallback(llm_text: str, local_text: str, intent: str = "") -> str:
+    """Guard + prefer grounded local/composed when LLM weak (web3test pick_faq_over_llm pattern)."""
+    if llm_text and not is_weak_llm_output(llm_text):
+        return repair_llm_output(llm_text)
+    if local_text and not is_weak_llm_output(local_text):
+        return repair_llm_output(local_text)
+    # last resort — short safe line
+    return "جزئیات بیشتری بده تا دقیق‌تر راهنمایی کنم."
 
 # Few-shot bank for Qwen3 — high-quality natural Persian examples
 FEW_SHOT_BANK = [

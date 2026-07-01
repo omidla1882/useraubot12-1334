@@ -30,6 +30,12 @@ async def main():
  پرداخت در فارماوب با ۸ ارز دیجیتال انجام می‌شود: BTC، ETH، USDT، TRX، BNB، TON، SOL، DOGE."""
     print("1. Gate bad promo:", "REJECTED ✓" if not b.is_high_quality_natural(bad) else "FAILED ✗")
 
+    # New: repair works on common hallucinations
+    if hasattr(b, 'repair_llm_output'):
+        print("1b. repair 'فقط ترون':", "FIXED ✓" if 'ترون' not in b.repair_llm_output('فقط ترون کار میکنه') else "STILL BAD")
+    if hasattr(b, 'is_weak_llm_output'):
+        print("1c. weak guard on robotic:", "DETECTED ✓" if b.is_weak_llm_output("متأسفم نمیتوانم کمک کنم") else "MISSED")
+
     # 2. Good natural samples
     goods = [
         "رتالین واقعاً برای بعضی افراد با بیش فعالی کمک میکنه ولی حتما باید پزشک تعیین کنه.",

@@ -37,10 +37,10 @@ class Qwen3Client:
             os.getenv('OLLAMA_BASE_URL', 'http://qwen3.railway.internal:11434'),
         ).rstrip('/')
         self.model = os.getenv('QWEN3_MODEL', os.getenv('OLLAMA_MODEL', 'qwen3:1.7b'))
-        self.timeout = float(os.getenv('QWEN3_TIMEOUT', '60'))
-        self.default_max_tokens = int(os.getenv('QWEN3_MAX_TOKENS', '180'))
-        self.default_temperature = float(os.getenv('QWEN3_TEMPERATURE', '0.36'))
-        self.default_num_ctx = int(os.getenv('QWEN3_NUM_CTX', '4096'))
+        self.timeout = float(os.getenv('QWEN3_TIMEOUT', '75'))
+        self.default_max_tokens = int(os.getenv('QWEN3_MAX_TOKENS', '280'))
+        self.default_temperature = float(os.getenv('QWEN3_TEMPERATURE', '0.38'))
+        self.default_num_ctx = int(os.getenv('QWEN3_NUM_CTX', '3584'))
 
     async def is_available(self) -> bool:
         try:
