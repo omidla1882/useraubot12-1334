@@ -560,9 +560,46 @@ ENABLE_GROUP_AI = True  # 🟢 فعال | 🔴 غیرفعال
 QWEN3_BASE_URL = os.environ.get('QWEN3_BASE_URL', 'http://qwen3.railway.internal:11434')
 QWEN3_MODEL = os.environ.get('QWEN3_MODEL', 'qwen3:1.7b')
 
-# محدودیت: حداکثر 1 پاسخ AI در هر گروه در این بازه زمانی (ثانیه) — balanced for engagement + safety
-GROUP_AI_COOLDOWN_SECONDS = 55    # بین پاسخ‌ها در هر گروه (کاهش برای تعامل بیشتر طبیعی)
+# محدودیت: حداکثر 1 پاسخ AI در هر گروه در این بازه زمانی (ثانیه) — STRONG anti-spam
+GROUP_AI_COOLDOWN_SECONDS = 300   # حداقل 5 دقیقه بین پاسخ‌های غیر mention (جلوگیری از اسپم)
 GROUP_AI_TIMEOUT_SECONDS = 75     # زمان بیشتر برای مدل کند CPU
+
+# ═══════════════════════════════════════════════════════════
+# 🛡️ STRONG ANTI-SPAM / ANTI-CONSECUTIVE GUARD (Priority fix)
+# Never allow rapid or consecutive messages in the same group.
+# Enforced for handle_group_ai, observer, starters, and funnels.
+# ═══════════════════════════════════════════════════════════
+MIN_GROUP_BOT_INTERVAL = 600  # 10 minutes minimum between ANY bot message in same group
+last_group_bot_send: Dict[int, float] = {}  # gid -> last unix time we sent (reply/starter/funnel)
+
+def can_send_to_group_safely(gid: int) -> bool:
+    """Central guard: returns False if we sent to this group too recently.
+    Also consults SmartTimeManager hourly limit.
+    """
+    now = time.time()
+    last = last_group_bot_send.get(gid, 0)
+    if now - last < MIN_GROUP_BOT_INTERVAL:
+        try:
+            slog(f"SPAM_GUARD: skip gid={gid} (only {int(now-last)}s since last bot msg)")
+        except:
+            pass
+        return False
+
+    # Also respect the hourly rate via SmartTimeManager (best effort)
+    try:
+        if not smart_time_manager.can_send_to_group(gid):
+            return False
+    except Exception:
+        pass
+    return True
+
+def record_group_bot_send(gid: int):
+    """Record that we just sent a message (reply, starter or funnel) to gid."""
+    last_group_bot_send[gid] = time.time()
+    try:
+        smart_time_manager.record_activity(gid, True)
+    except Exception:
+        pass
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚠️⚠️⚠️ سوییچ‌های عملیات پرریسک (HIGH-RISK OPERATIONS SWITCHES) ⚠️⚠️⚠️
@@ -13807,10 +13844,12 @@ async def handle_group_ai(event):
             except Exception:
                 pass
 
-        # cooldown (mentions bypass)
+        # cooldown (mentions bypass) + ultimate anti-spam guard
         now = time.time()
         last = group_ai_last_response.get(chat_id, 0)
         if not is_mentioned and (now - last) < GROUP_AI_COOLDOWN_SECONDS:
+            return
+        if not is_mentioned and not can_send_to_group_safely(chat_id):
             return
 
         # Update exchange history (memory updated in context-building below)
@@ -13837,7 +13876,13 @@ async def handle_group_ai(event):
             return
 
         group_ai_last_response[chat_id] = now
+
+        # ANTI-SPAM GUARD: block if too soon in this group
+        if not can_send_to_group_safely(chat_id):
+            return
+
         await event.reply(response)
+        record_group_bot_send(chat_id)
         group_exchange_history[chat_id].append(("bot", response))
         # auto learn
         if any(k in response.lower() for k in ['ارسال', 'پرداخت', 'ساعت', 'ریتالین', 'اوزمپیک']):
@@ -13850,11 +13895,15 @@ async def handle_group_ai(event):
             if sender_id:
                 count = _track_user_exchange(chat_id, sender_id)
                 if _should_funnel_to_pm(chat_id, sender_id):
-                    await asyncio.sleep(random.uniform(4, 10))
+                    # CRITICAL: never spam consecutive. Use very long natural delay + guard.
+                    await asyncio.sleep(random.uniform(900, 1800))  # 15-30 minutes
+                    if not can_send_to_group_safely(chat_id):
+                        return  # already sent something else recently
                     ctx_for_funnel = "\n".join([t for _, t in list(group_exchange_history[chat_id])[-6:]])
                     funnel_msg = await generate_pm_funnel_msg(ctx_for_funnel, count, chat_id=chat_id)
                     if funnel_msg and is_high_quality_natural(funnel_msg):
                         await event.reply(funnel_msg)
+                        record_group_bot_send(chat_id)
                         _mark_funnel_sent(chat_id, sender_id)
                         slog(f"📩 PM funnel sent to user {sender_id} in group {chat_id}")
         except Exception as _fe:
@@ -13922,7 +13971,7 @@ async def generate_pm_funnel_msg(recent_ctx: str, exchange_count: int = 3, chat_
 
 # ── Strengthened Proactive Natural Engagement (observer) ─────────────────────
 PROACTIVE_ENABLED = True
-PROACTIVE_MAX_PER_GROUP_DAY = 18  # higher for real engagement in owned groups (safe timing inside)
+PROACTIVE_MAX_PER_GROUP_DAY = 4   # LOW to prevent spam (sporadic = human). Max ~4 meaningful actions/day/group.
 _proactive_counters: Dict[int, int] = defaultdict(int)
 _proactive_day = date.today()
 
@@ -13964,11 +14013,14 @@ async def _post_conversation_starter(gid: int) -> bool:
     now = time.time()
     if now - _last_starter_time.get(gid, 0) < _starter_min_interval:
         return False
+    if not can_send_to_group_safely(gid):
+        return False
     try:
         starter = random.choice(CONVERSATION_STARTERS)
         await simulate_read_and_type(client, gid)
         await client.send_message(gid, starter)
         _last_starter_time[gid] = now
+        record_group_bot_send(gid)
         _record_bot_output(gid, starter)
         group_exchange_history[gid].append(("bot", starter))
         log_ai_response(f"STARTER gid={gid}", "", starter)
@@ -14025,13 +14077,15 @@ async def group_observer_task():
                     if ok:
                         _proactive_counters[gid] += 1
                         acted = True
-                        await asyncio.sleep(random.uniform(200, 450))
+                        await asyncio.sleep(random.uniform(300, 600))
 
             if not acted:
                 # Mode 1: Reply to a specific user's message
                 for gid in candidates:
                     if _proactive_counters[gid] >= PROACTIVE_MAX_PER_GROUP_DAY:
                         continue
+                    if not can_send_to_group_safely(gid):
+                        continue  # strong anti-spam: respect global min interval
                     try:
                         msgs = await client.get_messages(gid, limit=18)
                         if not msgs:
@@ -14115,10 +14169,17 @@ async def group_observer_task():
                         resp = await call_qwen3_natural(ctx_list, target_text, chat_id=gid, high_value=True)
 
                         if resp and is_high_quality_natural(resp) and len(resp) > 10 and not _is_repetitive(gid, resp):
+                            # Human randomness: often skip even good replies to avoid appearing active
+                            if random.random() < 0.45:
+                                continue
+
                             await asyncio.sleep(random.uniform(20, 70))
                             await simulate_read_and_type(client, gid)
 
+                            if not can_send_to_group_safely(gid):
+                                continue
                             await client.send_message(gid, resp, reply_to=target_msg.id)
+                            record_group_bot_send(gid)
                             _proactive_counters[gid] += 1
                             _record_bot_output(gid, resp)
                             group_exchange_history[gid].append(("bot", resp))
@@ -14133,16 +14194,21 @@ async def group_observer_task():
                             log_ai_response(f"PROACTIVE uid={target_uid} gid={gid} ex={count}", target_text[:60], resp)
 
                             if _should_funnel_to_pm(gid, target_uid):
-                                await asyncio.sleep(random.uniform(6, 18))
-                                ctx_for_funnel = "\n".join([t for _, t in list(group_exchange_history[gid])[-5:]])
-                                funnel_msg = await generate_pm_funnel_msg(ctx_for_funnel, count, chat_id=gid)
-                                if funnel_msg and is_high_quality_natural(funnel_msg):
-                                    await client.send_message(gid, funnel_msg, reply_to=target_msg.id)
-                                    _mark_funnel_sent(gid, target_uid)
-                                    slog(f"📩 PM funnel → uid={target_uid} gid={gid}")
+                                # Never consecutive spam: very long delay + guard
+                                await asyncio.sleep(random.uniform(900, 1800))  # 15-30 min
+                                if not can_send_to_group_safely(gid):
+                                    pass  # skip funnel
+                                else:
+                                    ctx_for_funnel = "\n".join([t for _, t in list(group_exchange_history[gid])[-5:]])
+                                    funnel_msg = await generate_pm_funnel_msg(ctx_for_funnel, count, chat_id=gid)
+                                    if funnel_msg and is_high_quality_natural(funnel_msg):
+                                        await client.send_message(gid, funnel_msg, reply_to=target_msg.id)
+                                        record_group_bot_send(gid)
+                                        _mark_funnel_sent(gid, target_uid)
+                                        slog(f"📩 PM funnel → uid={target_uid} gid={gid}")
 
                             acted = True
-                            await asyncio.sleep(random.uniform(160, 360))
+                            await asyncio.sleep(random.uniform(300, 600))  # respect min interval
                             break
 
                     except (ChatWriteForbiddenError, ChannelPrivateError, UserBannedInChannelError):
@@ -14151,9 +14217,9 @@ async def group_observer_task():
                         continue
 
             if acted:
-                await asyncio.sleep(random.randint(250, 600))
+                await asyncio.sleep(random.randint(400, 900))  # longer human-like pause after action
             else:
-                await asyncio.sleep(random.randint(90, 240))
+                await asyncio.sleep(random.randint(180, 420))  # base loop slower to avoid bursts
 
         except Exception:
             await asyncio.sleep(180)

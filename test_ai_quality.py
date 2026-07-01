@@ -97,6 +97,30 @@ async def main():
 
     print("\n=== Professional benchmark finished ===")
 
+# ── Anti-spam guard tests (new priority) ─────────────────────────────────────
+def test_anti_spam_guard():
+    print("\n=== Anti-Spam Guard Tests ===")
+    import bot as b
+    import time
+    gid = 999999999
+    # Clean
+    b.last_group_bot_send.pop(gid, None)
+
+    # Initially allowed
+    assert b.can_send_to_group_safely(gid) == True, "Should allow first send"
+
+    b.record_group_bot_send(gid)
+    # Immediately after should block
+    assert b.can_send_to_group_safely(gid) == False, "Must block within MIN interval"
+
+    # Simulate time passage (hack the timestamp)
+    b.last_group_bot_send[gid] = time.time() - (b.MIN_GROUP_BOT_INTERVAL + 10)
+    assert b.can_send_to_group_safely(gid) == True, "Should allow after interval"
+
+    print("Anti-spam guard: PASS (blocks rapid, allows after interval)")
+    # Reset
+    b.last_group_bot_send.pop(gid, None)
+
 async def test_group_engagement_style():
     print("\n=== Group Engagement Style Tests (Qwen3 intelligence) ===")
     group_queries = [
