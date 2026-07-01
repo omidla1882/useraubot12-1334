@@ -709,7 +709,7 @@ def repair_llm_output(text: str, language: str = 'fa') -> str:
     """Strong repair for small-model hallucinations (port + extension from web3test model_guard)."""
     if not text:
         return text
-    # Brand fixes
+    # Brand fixes (from reference)
     text = text.replace('مدفارماوب', 'فارماوب')
     text = re.sub(r'medpharmaweb|imed|sara', 'فارماوب', text, flags=re.I)
     # "only tron" fix — we accept 8 cryptos
@@ -718,6 +718,9 @@ def repair_llm_output(text: str, language: str = 'fa') -> str:
             text = re.sub(r'فقط\s*ترون[^.\n]*', '۸ ارز دیجیتال قبول می‌کنیم (BTC، ETH، USDT روی TRC20، TRX، BNB، TON، SOL، DOGE)', text, flags=re.I)
         else:
             text = re.sub(r'only\s*tron[^.\n]*', 'We accept 8 cryptos (BTC, ETH, USDT on TRC20, etc.)', text, flags=re.I)
+    # Additional common small model fixes
+    text = re.sub(r'تراکته', '', text, flags=re.I)
+    text = re.sub(r'فروشگاه آنلاین \(Online Store\)', 'فروشگاه آنلاین', text, flags=re.I)
     # Remove repetitive identical lines
     lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
     seen = set()
