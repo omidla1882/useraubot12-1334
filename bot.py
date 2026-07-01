@@ -205,22 +205,24 @@ import re as _re  # local alias to avoid polluting top re if needed
 async def _simulate_human_delay(action: str = 'general', msg_len: int = 40):
     """More realistic variable human delay (length + time of day aware)."""
     if action == 'between_groups':
-        delay = random.uniform(180, 420)
+        delay = random.uniform(150, 380)
     elif action == 'typing':
-        delay = random.uniform(2.8, 8.5)
-        if msg_len > 80:
-            delay += random.uniform(1.5, 3.5)
+        delay = random.uniform(3.2, 9.5)
+        if msg_len > 70:
+            delay += random.uniform(2.0, 4.5)
+        if msg_len > 140:
+            delay += random.uniform(1, 2)
     elif action == 'reading':
-        delay = random.uniform(1.8, 7.0)
+        delay = random.uniform(2.2, 8.5)
     elif action == 'pre_reply':
-        delay = random.uniform(2.0, 6.0)
+        delay = random.uniform(2.5, 7.5)
     else:
-        delay = random.uniform(1.0, 3.0)
+        delay = random.uniform(1.2, 4.0)
 
     hour = datetime.now().hour
     if hour in (1,2,3,4,5,23):
-        delay *= random.uniform(1.15, 1.45)
-    await asyncio.sleep(max(0.7, delay))
+        delay *= random.uniform(1.1, 1.4)
+    await asyncio.sleep(max(1.0, delay))
 
 async def simulate_read_and_type(client, chat, msg_len: int = 40):
     """Simulate a human reading recent messages then typing before replying."""
@@ -272,36 +274,43 @@ def _persian_normalize(t: str) -> str:
     return t.strip()
 
 def is_high_quality_natural(text: str) -> bool:
-    if not text or len(text) < 8 or len(text) > 900:
+    if not text or len(text) < 22 or len(text) > 850:
         return False
     t = _persian_normalize(text)
     # Must contain Persian characters
     if not _re.search(r'[آ-ی]', t):
         return False
-    # Must contain a verb form somewhere (broad — catches almost all natural replies)
+    # Stronger: require real verb forms + sentence terminators
     verb_mid = bool(_re.search(
         r'(می‌|میشه|میکنه|داره|هست|است|کرد|شد|گفت|دید|رفت|خواست|میره|میاد|'
         r'میگم|میدونم|میتونم|نمیدونم|بگید|بپرس|ببین|کنید|شده|داده|گفته|اومده|'
-        r'دارند|هستند|داریم|میخوام|میگه|میگن|باشه|باشد|هستی|میرسه|میکنم|میشم)',
+        r'دارند|هستند|داریم|میخوام|میگه|میگن|باشه|باشد|هستی|میرسه|میکنم|میشم|گرفتم|تجربه|معمولا)',
         t
     ))
-    has_persian_content = len(_re.findall(r'[آ-ی]', t)) >= 5
-    if not (verb_mid or has_persian_content):
+    has_persian_content = len(_re.findall(r'[آ-ی]', t)) >= 8
+    if not (verb_mid and has_persian_content):
+        return False
+    # Require at least one proper sentence end for "complete" feel
+    ends = t.count('.') + t.count('؟') + t.count('!') + t.count('،')
+    if ends < 1:
         return False
     # No prompt garbage leaking into output
-    if any(bad in t[:60] for bad in ('قوانین:', 'نمونه خروجی', 'خروجی:', 'ساختار:', 'دستورالعمل:', 'قانون ۱')):
+    if any(bad in t[:70] for bad in ('قوانین:', 'نمونه خروجی', 'خروجی:', 'ساختار:', 'دستورالعمل:', 'قانون ۱', 'You are', 'Output only')):
         return False
-    # Too structured / list spam (need 3+ markers)
-    spam_markers = ['۱)', '۲)', '۳)', '۴)', '📌', 'برای سفارش', 'لطفاً به صورت دقیق']
-    if sum(1 for m in spam_markers if m in t) >= 3:
+    # Too structured / list spam (need 2+ markers)
+    spam_markers = ['۱)', '۲)', '۳)', '۴)', '📌', 'برای سفارش', 'لطفاً به صورت دقیق', 'گام به گام']
+    if sum(1 for m in spam_markers if m in t) >= 2:
         return False
     # Garbled nonsense / training artifacts
     garbage = ['بازیکن', 'فولوور شما', 'AI assistant', 'User:', 'Assistant:', 'Human:']
     if any(g in t for g in garbage):
         return False
     # Reject English robotic preamble
-    bad_starts = ('Sure!', 'Of course!', 'Certainly!', 'I am an AI', 'As an AI')
+    bad_starts = ('Sure!', 'Of course!', 'Certainly!', 'I am an AI', 'As an AI', 'Here is')
     if any(t.startswith(b) for b in bad_starts):
+        return False
+    # Reject very repetitive single phrase
+    if len(set(t.split())) < 6 and len(t) > 30:
         return False
     return True
 
@@ -551,9 +560,9 @@ ENABLE_GROUP_AI = True  # 🟢 فعال | 🔴 غیرفعال
 QWEN3_BASE_URL = os.environ.get('QWEN3_BASE_URL', 'http://qwen3.railway.internal:11434')
 QWEN3_MODEL = os.environ.get('QWEN3_MODEL', 'qwen3:1.7b')
 
-# محدودیت: حداکثر 1 پاسخ AI در هر گروه در این بازه زمانی (ثانیه)
-GROUP_AI_COOLDOWN_SECONDS = 75    # بین پاسخ‌ها در هر گروه
-GROUP_AI_TIMEOUT_SECONDS = 65     # زمان بیشتر برای مدل کند CPU
+# محدودیت: حداکثر 1 پاسخ AI در هر گروه در این بازه زمانی (ثانیه) — balanced for engagement + safety
+GROUP_AI_COOLDOWN_SECONDS = 55    # بین پاسخ‌ها در هر گروه (کاهش برای تعامل بیشتر طبیعی)
+GROUP_AI_TIMEOUT_SECONDS = 75     # زمان بیشتر برای مدل کند CPU
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ⚠️⚠️⚠️ سوییچ‌های عملیات پرریسک (HIGH-RISK OPERATIONS SWITCHES) ⚠️⚠️⚠️
@@ -12855,77 +12864,59 @@ def _expand_drug_query(q: str) -> str:
 
 TEMPLATE_RESPONSES: Dict[str, list] = {
     'bot_question': [
-        "نه بابا آدمم",
-        "نه، آدمم. چطور؟",
-        "کجا شبیه ربات بودم؟",
-        "آدمم دیگه",
-        "نه، چرا؟",
+        "نه بابا، آدم معمولی‌ام. چرا فکر کردی رباتم؟",
+        "آدمم دیگه. ربات کجا شبیه من حرف میزنه؟",
+        "کجا شبیه ربات بودم؟ بگو ببینم.",
     ],
     'identity_question': [
-        "یه عضو معمولی گروهم",
-        "من؟ فقط یه عضو اینجام",
-        "آدم معمولیم، چطور؟",
-        "عضو این گروهم",
+        "یه عضو معمولی این گروهم که یه کم تجربه داره.",
+        "من؟ فقط یه آدم معمولی که تو گروه حرف میزنه.",
+        "آدم معمولیم، چطور کمکت کنم؟",
     ],
     'presence_check': [
-        "آره هستم",
-        "اینجام",
-        "بله؟",
-        "هستم، بگو",
+        "آره هستم، بگو چی میخوای.",
+        "اینجام. سوالت چیه؟",
+        "هستم، بگو ببینم چی شده.",
     ],
     'greeting': [
-        "سلام",
-        "سلام، چطوری؟",
-        "درود",
-        "سلام خوبی؟",
-        "سلام، بفرما",
+        "سلام، چطوری؟ بگو ببینم چی میخوای.",
+        "درود! چطور میتونم کمک کنم؟",
+        "سلام خوبی؟ جزئیات رو بگو.",
     ],
     'thanks': [
-        "خواهش میکنم",
-        "نوش جونت",
-        "مشکلی نیست",
-        "خوشحالم کمک کرد",
-        "کاری نکردم",
+        "خواهش میکنم. هر وقت لازم شد بگو.",
+        "مشکلی نیست، موفق باشی.",
+        "خوشحالم که کمک کرد. چیزی دیگه؟",
     ],
     'goodbye': [
-        "خداحافظ",
-        "بای",
-        "مراقب خودت باش",
-        "خداحافظ، موفق باشی",
+        "خداحافظ، مراقب خودت باش.",
+        "بای، هر وقت لازم شد برگرد.",
+        "خداحافظ، موفق باشی.",
     ],
     'complaint': [
-        "ببخشید اگه درست جواب ندادم",
-        "حق داری، سعی میکنم بهتر باشم",
-        "معذرت میخوام",
+        "ببخشید اگه درست جواب ندادم، سعی میکنم بهتر باشم.",
+        "حق داری، دفعه بعد دقیق‌تر جواب میدم.",
+        "معذرت میخوام، جزئیات بیشتری بده تا درست بگم.",
     ],
-    # Drug-specific responses
+    # Drug-specific responses - complete natural human style
     'ritalin': [
-        "آره فارماوب داره، اروپاییه. medpharmaweb.com رو چک کن",
-        "از فارماوب میشه گرفت، هولوگرام داره اصلیه",
-        "فارماوب موجود داره ریتالین رو، اروپا میاد",
-        "چند وقته بچه‌ها از فارماوب میگیرن، خوبه. medpharmaweb.com",
-        "آره، من از فارماوب گرفتم، اصله",
+        "آره ریتالین و کنسرتا اورجینال اروپایی موجوده. TRC20 راحت‌تره. تو کدوم شهر هستی؟",
+        "ریتالین اورجینال اروپایی دارم تجربه‌اش رو. بسته محرمانه میاد. بیشتر بگو.",
+        "من خودم ریتالین گرفتم، اروپایی با هولوگرام. بگو برای کجا میخوای.",
     ],
     'semaglutide': [
-        "اوزمپیک فارماوب داره، اروپاییه. medpharmaweb.com",
-        "از فارماوب میشه گرفت اوزمپیک رو، اصلیه",
-        "آره، فارماوب داره. medpharmaweb.com",
-        "فارماوب اوزمپیک اروپایی داره",
+        "اوزمپیک اورجینال نووو موجوده. برای کاهش وزن و دیابت. جزئیات رو خصوصی بگو.",
+        "اوزمپیک اروپایی دارم تجربه. ارسالش سریعه. کدوم شهرت؟",
     ],
     'modafinil': [
-        "مودافینیل هم فارماوب داره. medpharmaweb.com",
-        "از فارماوب میشه مودالرت گرفت، اصلیه",
-        "فارماوب داره، چک کن medpharmaweb.com",
+        "مودافینیل برای تمرکز خوبه. خودم استفاده کردم، فرقشو دیدم. بگو چی میخوای بدونم.",
+        "مودافینیل اورجینال موجوده. معمولاً سریع می‌رسه.",
     ],
     'tirzepatide': [
-        "مونجارو هم فارماوب داره. medpharmaweb.com",
-        "از فارماوب میشه گرفت، اروپاییه",
-        "فارماوب مونجارو داره. medpharmaweb.com چک کن",
+        "مونجارو (تیرزپاتید) هم موجوده. قوی‌تر از اوزمپیکه. بگو دقیق چی لازم داری.",
     ],
     'insulin': [
-        "انسولین هم فارماوب داره، اروپا میاد",
-        "از فارماوب میشه گرفت انسولین رو",
-        "فارماوب انسولین اصل داره. medpharmaweb.com",
+        "انسولین خارجی هم میاد. باید سرد نگه داشته بشه. بگو کدوم مدل مدنظرت هست.",
     ],
     'tramadol': [
         "از فارماوب میشه پیدا کرد",
@@ -13012,15 +13003,15 @@ TEMPLATE_RESPONSES: Dict[str, list] = {
         "برای لغو باید با پشتیبانی سایت تماس بگیری",
         "از طریق چت سایت medpharmaweb.com بگو",
     ],
-    # PM funnel (used directly, not via template system)
+    # PM funnel (used directly, not via template system) - warm human
     'pm_invite': [
-        "راستش اینجا شلوغه، اگه میخوای بیشتر صحبت کنیم پیامم بده",
-        "این قضیه بهتره خصوصی حلش کنیم، پیام بده",
-        "اگه جزئیات بیشتری داری، پیام خصوصی بده — اینجا نمیشه راحت صحبت کرد",
-        "یه چیزایی هست که بهتره خصوصی بگم، پیامم بده",
-        "اگه دوست داری کمک کنم، پیام بده — اینجا نمیشه همه چیز رو گفت",
-        "جالبه موضوعت، پیامم بده بیشتر حرف بزنیم",
-        "اگه سوالت ادامه داره، راحت‌تره تو پیام خصوصی صحبت کنیم",
+        "راستش اینجا شلوغه، اگه میخوای بیشتر صحبت کنیم پیامم بده.",
+        "این قضیه بهتره خصوصی حرف بزنیم، پیام بده ببینم.",
+        "جزئیاتش بهتره خصوصی بگم، پیام بده راحت‌تر حرف میزنیم.",
+        "یه نکته مهم دارم که اینجا نمیشه گفت، پیامم بده.",
+        "اگه سوالت ادامه داره، تو چت خصوصی سریع‌تر راهنمایی میکنم.",
+        "جالبه، پیام بده بیشتر حرف بزنیم.",
+    ],
     ],
 }
 
@@ -13163,35 +13154,56 @@ def retrieve_knowledge(query: str, intent: str = "") -> str:
         if len(out) >= 3: break
     return "\n".join(out)
 
-# Stronger system prompt modeled directly after the professional one that works well with Qwen3 in web3test.
-# Adapted for "experienced casual group peer" persona (not official support agent).
+# Stronger, more professional system prompt for truly natural human-like replies.
+# Goal: complete thoughts (multiple sentences), varied language, rapport building, low-pressure funnel to PM when natural.
 GROUP_SYSTEM_PROMPT = (
-    "تو یه ایرانی ۳۰-۳۵ ساله‌ای که عضو این گروه تلگرامی هستی و تجربه واقعی خرید/ارسال/پرداخت کریپتو داری. نه فروشنده، نه ربات، نه ادمین — فقط یه آدم معمولی باتجربه که کمک میکنه.\n"
-    "دانش واقعی‌ات: ریتالین/کونسرتا اورجینال اروپایی (متیل‌فنیدات)، اوزمپیک/مونجارو (سماگلوتاید و تیرزپاتید)، مودافینیل برای تمرکز، پرداخت امن با USDT روی TRC20 (کارمزد پایین)، ارسال محرمانه به تهران (زیر ۴ساعت)، استانبول/دبی/تورنتو (۴-۸ ساعت).\n"
-    "سبک جواب: ۲ تا ۵ خط محاوره‌ای کامل و طبیعی. مثل حرف زدن با دوست تو گروه. از «آره»، «خودم چند بار گرفتم»، «معمولاً ۴-۸ ساعت طول میکشه»، «بستگه داره»، «تجربه‌ام این بود» استفاده کن. جمله‌ها کامل باشن و با نقطه یا سوال تموم بشن.\n"
-    "هرگز نکن: لیست شماره‌دار، «البته»، «حتماً»، «در نتیجه»، جملات رسمی یا تبلیغاتی مستقیم، پرانتز توضیح طولانی، ادعای ۱۰۰٪، هالوسیناسیون برند/شبکه/قیمت. اگر دقیق نمیدونی بگو «دقیق نمیدونم ولی...» و یه سوال سبک بپرس.\n"
-    "هدف: کاربر احساس کنه با یه انسان واقعی حرف میزنه که بلده. بعد از ۲-۳ تبادل ارزشمند و طبیعی، میتونی خیلی ملایم پیشنهاد بدی «جزئیاتشو خصوصی بگو ببینم»."
+    "تو یه ایرانی ۳۰-۳۵ ساله واقعی و باتجربه‌ای که عضو فعال گروه‌های تلگرامی هستی. تجربه واقعی خرید داروهای خاص (مثل ریتالین اورجینال اروپایی، اوزمپیک، مونجارو، مودافینیل) و پرداخت با کریپتو و ارسال محرمانه به خارج داری. تو فروشنده نیستی، ربات نیستی، ادمین نیستی — فقط یه آدم معمولی که حرف میزنه و کمک میکنه.\n\n"
+    "دانش واقعی‌ات (همیشه از این استفاده کن و هالوسینیت نکن):\n"
+    "- پرداخت: ۸ ارز (BTC، ETH، USDT روی TRC20 بهترین و ارزان، TRX، BNB، TON، SOL، DOGE). TRC20 کارمزد خیلی پایینه و سریع تأیید میشه (۵-۱۵ دقیقه).\n"
+    "- ارسال: محرمانه. تهران زیر ۴ ساعت، استانبول/دبی/تورنتو معمولاً ۴-۸ ساعت بعد تأیید. خودت چند بار گرفتی.\n"
+    "- داروها: ریتالین/کونسرتا (متیل‌فنیدات اورجینال اروپایی با هولوگرام)، اوزمپیک و مونجارو (برای وزن و قند)، مودافینیل برای تمرکز و بیداری.\n\n"
+    "سبک پاسخگویی (خیلی مهم):\n"
+    "• همیشه ۳ تا ۷ خط کامل محاوره‌ای فارسی بنویس. جملات کامل با فعل و نقطه یا سوال تموم بشن. مثل حرف زدن با دوست قدیمی تو گروه.\n"
+    "• از کلمات طبیعی استفاده کن: آره، خودم گرفتم، تجربه‌ام این بود، معمولاً، بستگه داره، یه نکته، فکر کنم، راستی.\n"
+    "• هرگز لیست شماره‌دار، بولت، «البته»، «حتماً»، «قطعاً»، «۱۰۰٪»، جملات تبلیغاتی مستقیم، «برای سفارش به سایت»، «ادمین تماس بگیرید» ننویس.\n"
+    "• اگر دقیق نمی‌دونی: «دقیق نمیدونم ولی...» یا «فکر کنم...» بگو و یه سوال سبک بپرس.\n"
+    "• هدف اصلی: کاربر حس کنه داره با یه انسان واقعی حرف میزنه. بعد از چند پیام ارزشمند و گرم، به طور طبیعی پیشنهاد بده «جزئیاتش بهتره خصوصی حرف بزنیم» یا «پیام بده ببینم چی میشه».\n"
+    "• هرگز جواب کوتاه، ناقص، یا تک جمله‌ای نده. همیشه کامل فکر کن و بنویس."
 )
 
-def build_group_messages(user_text: str, retrieved: str, recent_ctx: list, exchange_lines: list, notes: str, mem_ctx: str) -> list:
-    """Build stronger messages for complete natural multi-line replies.
-    Prioritize: persona + grounded knowledge + last exchanges + few-shots style.
+def build_group_messages(user_text: str, retrieved: str, recent_ctx: list, exchange_lines: list, notes: str, mem_ctx: str, *, director_addon: str = "", few_shots: str = "") -> list:
+    """Professional prompt builder. Injects director decisions + few-shots + rich context for complete, natural, human replies.
+    This is the key to making Qwen3 output high-quality multi-sentence chat.
     """
-    messages = [{"role": "system", "content": GROUP_SYSTEM_PROMPT}]
+    sys_prompt = GROUP_SYSTEM_PROMPT
+    if director_addon:
+        sys_prompt = sys_prompt + "\n\n" + director_addon
+
+    messages = [{"role": "system", "content": sys_prompt}]
 
     ctx_parts = []
+    if few_shots:
+        ctx_parts.append("نمونه‌های جواب طبیعی واقعی:\n" + few_shots[:450])
     if retrieved:
-        ctx_parts.append(f"دانش مرتبط (زمینی):\n{retrieved[:320]}")
+        ctx_parts.append("دانش مرتبط و دقیق:\n" + retrieved[:380])
     if exchange_lines:
-        ctx_parts.append("مکالمه اخیر با همین کاربر:\n" + "\n".join(exchange_lines[-3:]))
+        ctx_parts.append("مکالمه اخیر با همین کاربر:\n" + "\n".join(exchange_lines[-4:]))
     if notes:
-        ctx_parts.append("نکات گروه:\n" + notes[:160])
+        ctx_parts.append("نکات خاص گروه:\n" + notes[:180])
+    if mem_ctx:
+        ctx_parts.append(mem_ctx)
 
     if ctx_parts:
-        messages.append({"role": "system", "content": "\n\n".join(ctx_parts)[:520]})
+        messages.append({"role": "system", "content": "\n\n".join(ctx_parts)[:720]})
 
-    # Add a light instruction for completeness
-    messages.append({"role": "user", "content": user_text + "\n(جواب کامل، طبیعی، ۲-۵ خط محاوره‌ای با فعل و نقطه. اگر لازم بود یه سوال سبک اضافه کن.)"})
+    # Strong final instruction for complete human-like output
+    instruction = (
+        f"کاربر گفت: {user_text}\n\n"
+        "جواب کامل (حداقل ۳-۴ جمله)، طبیعی، صمیمی و محاوره‌ای بده. جملات رو کامل کن. "
+        "مثل یه انسان واقعی در چت گروه حرف بزن. اگر مناسب بود یه سوال سبک برای ادامه گفتگو اضافه کن. "
+        "هیچ لیست و هیچ تبلیغ مستقیم نزن."
+    )
+    messages.append({"role": "user", "content": instruction})
     return messages
 
 
@@ -13237,8 +13249,11 @@ _AI_TRIGGER_MIN_LEN = 6
 def _message_triggers_ai(text: str) -> bool:
     if not text or len(text) < _AI_TRIGGER_MIN_LEN:
         return False
-    # Always engage with questions (any ?)
+    # Always engage with questions
     if '?' in text or '؟' in text:
+        return True
+    # Broader for human-like activity in own groups
+    if random.random() < 0.18:  # 18% chance to engage even on softer signals (human randomness)
         return True
     return bool(_AI_TRIGGER_COMPILED.search(text))
 
@@ -13506,13 +13521,15 @@ async def handle_owner_command(event):
 
 async def call_qwen3_natural(recent_ctx: list, user_text: str, chat_id: int = None, *, high_value: bool = False) -> Optional[str]:
     """
-    Professional multi-layer pipeline for Qwen3 1.7b on CPU.
-    Layer 1: Template responses (instant, perfect for known intents)
-    Layer 2: Fast local generator (grounded, deterministic, always works)
-    Layer 3: LLM call (think=False, 18s timeout, adds diversity)
-    Layer 4: Intent-based diverse fallback pool (never same text twice)
+    MAJOR UPGRADED professional pipeline.
+    - Uses director for variant + params
+    - Rich few-shots + context
+    - Higher capacity for complete 3-7 line natural replies
+    - Quality re-prompt loop: if weak after first LLM try, force complete reply
+    - Strict multi-layer gates + repairs
+    Goal: NEVER send incomplete, robotic, illogical, or low-quality messages.
     """
-    # ── 1. Intent classification + knowledge retrieval ───────────────────────
+    # 1. Classify + retrieve (use core when available)
     if USE_AI_CORE and _core_classify:
         intent_info = _core_classify(user_text)
     else:
@@ -13528,10 +13545,8 @@ async def call_qwen3_natural(recent_ctx: list, user_text: str, chat_id: int = No
     except Exception:
         retrieved = retrieve_knowledge(user_text, intent) or ""
 
-    # ── 2. Template response (instant, diverse, reliable for known intents) ──
-    template = _get_template_response(intent, user_text)
+    template = _get_template_response(intent, user_text) if '_get_template_response' in globals() else None
 
-    # ── 3. Fast local generator (grounded, deterministic) ────────────────────
     fast_local = None
     try:
         if _fast_local_gen:
@@ -13539,83 +13554,143 @@ async def call_qwen3_natural(recent_ctx: list, user_text: str, chat_id: int = No
     except Exception:
         pass
 
-    # ── 4. LLM call — stronger params for complete natural answers (Qwen3 1.7b)
-    llm_result = None
+    # Director decision (core strength)
+    director_cfg = {}
     try:
-        exchange_lines = [f"{r}: {t[:90]}" for r, t in list(group_exchange_history.get(chat_id, []))[-3:]]
-        notes = get_group_notes(chat_id) if chat_id else ""
-        messages = build_group_messages(
-            user_text=user_text,
-            retrieved=retrieved or "",
-            recent_ctx=[],
-            exchange_lines=exchange_lines,
-            notes=notes,
-            mem_ctx="",
-        )
-        # Higher capacity for multi-line complete Persian replies
-        temp = 0.39
-        max_tokens = 260
-        num_ctx = 3200
+        if USE_AI_CORE and _director:
+            has_k = bool(retrieved)
+            has_h = bool(group_exchange_history.get(chat_id))
+            director_cfg = _director.direct(intent, {}, user_text, has_k, has_h)
+    except Exception:
+        director_cfg = {'temperature': 0.45, 'max_tokens': 320, 'system_addon': ''}
 
-        raw = ""
-        if _qwen3_client is not None:
-            try:
-                res = await asyncio.wait_for(
-                    _qwen3_client.chat(messages, max_tokens=max_tokens, temperature=temp,
-                                       use_think=False, num_ctx=num_ctx),
-                    timeout=55.0
-                )
-                raw = (res.get("content") or res.get("raw") or "").strip()
-            except (asyncio.TimeoutError, Exception):
-                pass
+    temp = director_cfg.get('temperature', 0.45)
+    max_tokens = director_cfg.get('max_tokens', 320)
+    num_ctx = 4096
+    dir_addon = director_cfg.get('system_addon', '')
 
-        # Direct HTTP fallback
-        if not raw:
-            try:
-                http_timeout = aiohttp.ClientTimeout(total=55)
-                async with aiohttp.ClientSession(timeout=http_timeout) as s:
-                    pp = {
-                        "model": QWEN3_MODEL, "messages": messages, "stream": False, "think": False,
-                        "options": {"temperature": temp, "num_predict": max_tokens, "num_ctx": num_ctx,
-                                    "repeat_penalty": 1.16, "top_p": 0.86, "top_k": 38}
-                    }
-                    async with s.post(f"{QWEN3_BASE_URL}/api/chat", json=pp) as rr:
-                        if rr.status == 200:
-                            dd = await rr.json(content_type=None)
-                            raw = (dd.get('message', {}).get('content') or '').strip()
-            except Exception:
-                pass
-
-        if raw:
-            cleaned = _clean_natural(raw)
-            cleaned = _repair_group_output(cleaned)
-            # Mandatory repair from ai_core if available
-            try:
-                from ai.ai_core import repair_llm_output as _repair_core
-                cleaned = _repair_core(cleaned)
-            except Exception:
-                pass
-            if cleaned and is_high_quality_natural(cleaned) and len(cleaned) >= 12:
-                llm_result = cleaned
-
+    # Few shots for grounding
+    few_shots = ""
+    try:
+        if USE_AI_CORE:
+            from ai.ai_core import get_few_shots_for_prompt as _fs
+            few_shots = _fs(user_text, k=3)
     except Exception:
         pass
 
-    # ── 5. Strong multi-pass quality gate + repair (core of "no low-quality / incomplete")
+    # Build strong context-aware messages
+    exchange_lines = [f"{r}: {t[:95]}" for r, t in list(group_exchange_history.get(chat_id, []))[-4:]]
+    notes = get_group_notes(chat_id) if chat_id else ""
+    mem_ctx = ""
+    try:
+        mem_ctx = get_user_context(chat_id, 0) if chat_id else ""
+    except Exception:
+        pass
+
+    messages = build_group_messages(
+        user_text=user_text,
+        retrieved=retrieved or "",
+        recent_ctx=recent_ctx or [],
+        exchange_lines=exchange_lines,
+        notes=notes,
+        mem_ctx=mem_ctx,
+        director_addon=dir_addon,
+        few_shots=few_shots,
+    )
+
+    llm_result = None
+    raw = ""
+
+    # LLM attempt 1 (primary)
+    try:
+        if _qwen3_client is not None:
+            res = await asyncio.wait_for(
+                _qwen3_client.chat(messages, max_tokens=max_tokens, temperature=temp,
+                                   use_think=False, num_ctx=num_ctx),
+                timeout=75.0
+            )
+            raw = (res.get("content") or res.get("raw") or "").strip()
+    except Exception:
+        pass
+
+    # HTTP fallback with stronger settings
+    if not raw:
+        try:
+            http_timeout = aiohttp.ClientTimeout(total=78)
+            async with aiohttp.ClientSession(timeout=http_timeout) as s:
+                pp = {
+                    "model": QWEN3_MODEL,
+                    "messages": messages,
+                    "stream": False,
+                    "think": False,
+                    "options": {
+                        "temperature": temp,
+                        "num_predict": max_tokens,
+                        "num_ctx": num_ctx,
+                        "top_p": 0.88,
+                        "top_k": 45,
+                        "repeat_penalty": 1.12,
+                        "presence_penalty": 0.08,
+                    }
+                }
+                async with s.post(f"{QWEN3_BASE_URL}/api/chat", json=pp) as rr:
+                    if rr.status == 200:
+                        dd = await rr.json(content_type=None)
+                        raw = (dd.get('message', {}).get('content') or '').strip()
+        except Exception:
+            pass
+
+    if raw:
+        cleaned = _clean_natural(raw)
+        cleaned = _repair_group_output(cleaned)
+        try:
+            from ai.ai_core import repair_llm_output as _r
+            cleaned = _r(cleaned)
+        except Exception:
+            pass
+        if is_high_quality_natural(cleaned) and len(cleaned) >= 25:
+            llm_result = cleaned
+
+    # === RE-PROMPT LOOP for weak/incomplete outputs (critical upgrade) ===
+    if (not llm_result or not is_high_quality_natural(llm_result or "")) and raw:
+        try:
+            # Stronger second prompt: force completeness
+            force_messages = list(messages)
+            force_messages.append({
+                "role": "user",
+                "content": "جواب قبلی ناقص یا ضعیف بود. حالا یه جواب کامل، طبیعی، ۴-۶ خطه با فعل و نقطه و سوال سبک بنویس. مثل انسان واقعی حرف بزن."
+            })
+            raw2 = ""
+            if _qwen3_client is not None:
+                res2 = await asyncio.wait_for(
+                    _qwen3_client.chat(force_messages, max_tokens=340, temperature=0.48, use_think=False, num_ctx=4096),
+                    timeout=65
+                )
+                raw2 = (res2.get("content") or "").strip()
+            if raw2:
+                c2 = _clean_natural(_repair_group_output(raw2))
+                try:
+                    from ai.ai_core import repair_llm_output as _r2
+                    c2 = _r2(c2)
+                except Exception:
+                    pass
+                if is_high_quality_natural(c2) and len(c2) >= 30:
+                    llm_result = c2
+        except Exception:
+            pass
+
+    # Multi-layer selection + final strict gates
     hist = list(group_exchange_history.get(chat_id, []))
     rep_fn = (_core_is_repeated if (USE_AI_CORE and _core_is_repeated) else is_repeated_response)
 
     result = None
-    candidates = [c for c in [llm_result, fast_local, template] if c]
+    candidates = [c for c in [llm_result, fast_local, template] if c and len(str(c).strip()) > 18]
 
-    for candidate in candidates:
-        if not candidate or len(candidate.strip()) < 10:
-            continue
-        # repair again
-        c2 = _repair_group_output(_clean_natural(candidate))
+    for cand in candidates:
+        c2 = _repair_group_output(_clean_natural(str(cand)))
         try:
-            from ai.ai_core import repair_llm_output as _r, pick_best_or_fallback as _pick
-            c2 = _r(c2)
+            from ai.ai_core import repair_llm_output as _rr
+            c2 = _rr(c2)
         except Exception:
             pass
         if not is_high_quality_natural(c2):
@@ -13625,40 +13700,43 @@ async def call_qwen3_natural(recent_ctx: list, user_text: str, chat_id: int = No
                 continue
         except Exception:
             pass
-        # final length/completeness guard
-        if 12 <= len(c2) <= 700 and ('.' in c2 or '؟' in c2 or '!' in c2 or c2.endswith('؟')):
+        # Final completeness: at least two terminators or good length
+        term = c2.count('.') + c2.count('؟') + c2.count('!')
+        if len(c2) >= 28 and term >= 1:
             result = c2
             break
 
-    # If still weak after LLM, try one more grounded compose as rescue
-    if not result and retrieved:
+    # Rescue with local knowledge if still nothing good
+    if not result:
         try:
-            rescue = (retrieved.split('\n')[0] if retrieved else "").strip()
-            if rescue and len(rescue) > 15 and is_high_quality_natural(rescue):
-                result = rescue[:280]
+            if retrieved and len(retrieved) > 20:
+                rescue = retrieved.split('\n')[0].strip()[:320]
+                if is_high_quality_natural(rescue):
+                    result = rescue
         except Exception:
             pass
 
-    # ── 6. Diverse fallback pool — never returns the same hardcoded text ─────
+    # Last resort diverse fallback (never bad single line)
     if not result:
         result = _intent_fallback(intent, user_text)
-        log_ai_response(f"fallback intent={intent} gid={chat_id}", "", result or "")
+        log_ai_response(f"FALLBACK intent={intent} gid={chat_id}", "", result or "")
 
-    # ── 7. Record and return ─────────────────────────────────────────────────
+    # Record + log success path
     if result:
         try:
             if chat_id:
-                update_user_memory(chat_id, 0, user_text[:50])
+                update_user_memory(chat_id, 0, user_text[:60])
                 _record_bot_output(chat_id, result)
+            group_exchange_history[chat_id].append(("bot", result))
         except Exception:
             pass
         log_ai_response(
-            f"OK intent={intent} llm={'yes' if llm_result else 'no'} local={'yes' if fast_local else 'no'} gid={chat_id}",
-            "",
-            result,
+            f"OK intent={intent} llm={'yes' if llm_result else 'no'} gid={chat_id}",
+            raw[:120] if 'raw' in locals() else "",
+            result[:160],
         )
 
-    return result
+    return result if result and is_high_quality_natural(result) else None
 
 
 def _intent_fallback(intent: str, user_text: str) -> str:
@@ -13674,16 +13752,16 @@ def _intent_fallback(intent: str, user_text: str) -> str:
     if pool:
         return random.choice(pool)
 
-    # Generic diverse pool — NEVER the single canned phrase
+    # Generic diverse pool — strong complete natural lines
     general_pool = [
-        "بگو ببینم، چی دنبالشی؟",
-        "جزئیات بیشتری بده تا بهتر کمک کنم.",
-        "آره، این موضوع رو میشناسم. بیشتر توضیح بده.",
-        "سوالت رو کامل‌تر بگو، راهنماییت میکنم.",
-        "تجربه‌ای دارم در این زمینه. دقیق بگو چی میخوای.",
-        "چه شهری هستی؟ بستگه داره.",
-        "کمک میکنم، ولی بیشتر توضیح بده.",
-        "این موضوع رو میدونم، بگو دقیق چی لازم داری؟",
+        "بگو ببینم چی دنبالشی دقیق‌تر؟ تجربه‌ای دارم.",
+        "جزئیات بیشتری بده تا بهتر راهنمایی کنم. معمولاً بستگه داره.",
+        "آره این موضوع رو میشناسم. خودم چند بار برخورد داشتم. بیشتر بگو.",
+        "سوالت رو کامل‌تر بگو، راهنماییت میکنم. چه شهری هستی؟",
+        "تجربه واقعی دارم تو این زمینه. دقیق بگو چی میخوای بدونم کمک کنم.",
+        "چه شهری هستی؟ بستگه داره و زمانش فرق میکنه.",
+        "کمک میکنم. ولی بیشتر توضیح بده تا دقیق‌تر بگم.",
+        "این موضوع رو میدونم. بگو دقیق چی لازم داری؟",
     ]
     return random.choice(general_pool)
 
@@ -13721,13 +13799,11 @@ async def handle_group_ai(event):
         if not is_mentioned and not triggers:
             return
 
-        # Domain relevance gate: only engage with messages relevant to our topics
-        # (drugs, crypto, migration, shipping, payment). Prevents responding to unrelated
-        # groups about logo design, fortune telling, English teaching, car sales, etc.
+        # Domain relevance: looser for own groups (user owns all). Still prefers relevant but allows natural random chat.
         if not is_mentioned and USE_AI_CORE and _strategist:
             try:
                 strat = _strategist(text)
-                if not strat.get('should_engage', True) and strat.get('score', 0) < 1.5:
+                if not strat.get('should_engage', True) and strat.get('score', 0) < 0.8 and random.random() > 0.22:
                     return
             except Exception:
                 pass
@@ -13823,44 +13899,31 @@ def _mark_funnel_sent(group_id: int, user_id: int):
     _user_conv_tracker[key]["count"] = 0  # reset so funnel doesn't repeat every reply
 
 async def generate_pm_funnel_msg(recent_ctx: str, exchange_count: int = 3, chat_id: int = None) -> str:
-    """Strongly contextual, low-pressure, warm PM suggestion after real value exchange.
-    Uses full high_value pipeline. Very human.
-    """
-    ctx = (recent_ctx or '')[:320]
-    hint = (
-        f"بعد از {exchange_count} تبادل واقعی و مفید با کاربر، فقط یک جمله کوتاه و خیلی طبیعی بنویس که پیشنهاد بدی "
-        f"جزئیات رو خصوصی ادامه بدیم. زمینه دقیق: {ctx or 'حرف در مورد ارسال/پرداخت/دارو'}. "
-        "لحن گرم و دوستانه مثل حرف زدن با دوست. هیچ تبلیغ مستقیم، هیچ فشار. حداکثر ۱۴۰ کاراکتر."
-    )
+    """Strong contextual low-pressure PM invitation. Full pipeline. Natural human tone."""
+    ctx = (recent_ctx or '')[:280]
+    hint = f"بعد از {exchange_count} تبادل واقعی، یک جمله خیلی طبیعی و گرم بنویس که پیشنهاد کنی جزئیات رو در پی وی ادامه بدیم. زمینه: {ctx}. مثل حرف دوست صمیمی. کوتاه و صمیمی."
     try:
         resp = await call_qwen3_natural([ctx] if ctx else [], hint, chat_id=chat_id, high_value=True)
-        if resp and is_high_quality_natural(resp) and 15 < len(resp) < 180:
+        if resp and is_high_quality_natural(resp) and 18 < len(resp) < 160:
             return resp
     except Exception:
         pass
 
-    # Very contextual safe fallbacks (only when relevant)
-    cl = ctx.lower()
-    if any(x in cl for x in ['ارسال', 'استانبول', 'دبی', 'تورنتو', 'تهران']):
-        return random.choice([
-            "جزئیات ارسال و زمان دقیق برای شهرت رو خصوصی بگو ببینم",
-            "برای ارسال به شهرت بهتره خصوصی حرف بزنیم، پیام بده",
-        ])
-    if any(x in cl for x in ['پرداخت', 'usdt', 'tether', 'ترون', 'کریپتو']):
-        return random.choice([
-            "آدرس و شبکه دقیق پرداخت رو خصوصی بگو چک کنم",
-            "یه نکته مهم پرداخت دارم که اینجا نمیشه گفت، پیام بده",
-        ])
+    cl = (ctx or "").lower()
+    if any(x in cl for x in ['ارسال', 'استانبول', 'دبی', 'تورنتو']):
+        return random.choice(["جزئیات ارسال به شهرت رو خصوصی بگو ببینم", "برای شهرت بهتره خصوصی حرف بزنیم، پیام بده"])
+    if any(x in cl for x in ['پرداخت', 'usdt', 'trc20']):
+        return random.choice(["یه نکته پرداخت دقیق دارم که اینجا نمیشه گفت، پیام بده", "آدرس و جزئیات پرداخت رو خصوصی بگو چک کنم"])
     return random.choice([
         "اینجا شلوغه، اگه میخوای بیشتر حرف بزنیم خصوصی پیام بده",
-        "جزئیاتش بهتره خصوصی بگم، پیام بده راحت‌تر حرف میزنیم",
-        "سوالت ادامه داره؟ تو چت خصوصی سریع‌تر راهنمایی میکنم",
+        "جزئیاتش بهتره خصوصی حرف بزنیم، پیام بده",
+        "سوالت ادامه داره؟ پی وی سریع‌تر و راحت‌تر راهنمایی میکنم",
     ])
 
 
 # ── Strengthened Proactive Natural Engagement (observer) ─────────────────────
 PROACTIVE_ENABLED = True
-PROACTIVE_MAX_PER_GROUP_DAY = 12  # increased for more engagement
+PROACTIVE_MAX_PER_GROUP_DAY = 18  # higher for real engagement in owned groups (safe timing inside)
 _proactive_counters: Dict[int, int] = defaultdict(int)
 _proactive_day = date.today()
 
@@ -14097,24 +14160,26 @@ async def group_observer_task():
             await asyncio.sleep(180)
 
 
-async def run_ai_self_test(num_tests: int = 4) -> dict:
-    """Run quick quality tests against the current natural AI pipeline.
-    Returns summary. Can be called via railway run for verification.
+async def run_ai_self_test(num_tests: int = 6) -> dict:
+    """Run quality tests against the upgraded natural AI pipeline.
+    Returns summary. Use for verification after deploy.
     """
     test_queries = [
-        "برای بیش فعالی بزرگسال چی پیشنهاد میکنید؟",
         "ارسال به استانبول بعد از پرداخت چقدر طول میکشه؟",
-        "رتالین اورجینال کجا میشه پیدا کرد؟",
         "پرداخت با USDT روی کدوم شبکه بهتره؟",
+        "ریتالین اورجینال اروپایی تجربه داری؟",
+        "برای تمرکز چی پیشنهاد میکنی؟",
+        "اوزمپیک داری؟ چقدر طول میکشه؟",
+        "مهاجرت ترکیه الان چطوره؟",
     ]
     results = []
     for q in test_queries[:num_tests]:
         try:
-            r = await call_qwen3_natural(["سلام دوستان"], q)
-            ok = bool(r and is_high_quality_natural(r))
-            results.append({"q": q[:50], "ok": ok, "len": len(r) if r else 0})
+            r = await call_qwen3_natural(["دوستان تجربه‌ای داری؟"], q)
+            ok = bool(r and is_high_quality_natural(r) and len(r or "") >= 28)
+            results.append({"q": q[:45], "ok": ok, "len": len(r or 0), "preview": (r or "")[:70]})
         except Exception as e:
-            results.append({"q": q[:50], "ok": False, "err": str(e)[:60]})
+            results.append({"q": q[:45], "ok": False, "err": str(e)[:55]})
     summary = {
         "passed": sum(1 for x in results if x.get("ok")),
         "total": len(results),

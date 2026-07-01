@@ -570,10 +570,10 @@ class ModelDirector:
     """
     def __init__(self):
         self.variants = {
-            'attract_value': "You are a real experienced group member sharing helpful tips naturally to build trust and curiosity. Insert 1 short real value from knowledge if it fits (e.g. practical shipping/crypto tip). Sound like a peer, not a seller. Ask a light question back.",
-            'real_answer': "Think step by step using ONLY the provided knowledge and context. Be concrete and honest. Give real grounded answers. If unsure, say so. Output only natural casual Persian chat like a knowledgeable friend.",
-            'funnel': "After providing real value, naturally suggest continuing privately if the user seems interested. Keep it light, helpful, not pushy.",
-            'general_engage': "Be curious, relatable, professional yet casual. Build rapport. Occasionally share a real relevant insight to attract engagement.",
+            'attract_value': "تو یه عضو واقعی گروهی هستی که تجربه داره. یه نکته کوتاه مفید و واقعی از دانشت (ارسال، پرداخت، کیفیت) طبیعی بگو. مثل دوست حرف بزن، نه فروشنده. آخرش یه سوال سبک و دوستانه بپرس تا گفتگو ادامه پیدا کنه.",
+            'real_answer': "فقط از دانش و زمینه داده شده استفاده کن. جواب واقعی، دقیق و صادقانه بده. اگر مطمئن نیستی بگو. فقط به صورت محاوره‌ای طبیعی فارسی مثل یه دوست باتجربه حرف بزن. جملات کامل باشن.",
+            'funnel': "بعد از دادن ارزش واقعی، خیلی طبیعی و ملایم پیشنهاد کن جزئیات رو خصوصی ادامه بدیم اگر کاربر علاقه نشون داد. فشار نیار، مثل حرف دوست باشه.",
+            'general_engage': "کنجکاو، relatable و صمیمی باش. رابطه بساز. گاهی یه insight واقعی مرتبط بگو. جواب ۳-۶ خط کامل محاوره‌ای با فعل و نقطه. مثل انسان واقعی در گروه چت کن.",
         }
 
     def decide_variant(self, intent: str, user_text: str, high_value: bool = False) -> dict:
@@ -583,21 +583,27 @@ class ModelDirector:
         return self.direct(intent, plan, user_text, has_knowledge, high_value)
 
     def direct(self, intent: str, plan: dict, user_text: str, has_knowledge: bool, has_history: bool) -> dict:
-        """Return directed config: system_addon, use_think, temperature, max_tokens, post_notes."""
-        # Never use think mode — Qwen3 1.7b on CPU is too slow with think=True
+        """Return directed config: system_addon, use_think, temperature, max_tokens, post_notes.
+        Strongly biases toward complete, multi-sentence natural human chat replies.
+        """
         use_think = False
-        temp = 0.36 if intent in ('faq_order_process', 'shipping_time', 'tracking', 'payment_crypto_help') else 0.40
+        temp = 0.42 if intent in ('faq_order_process', 'shipping_time', 'tracking', 'payment_crypto_help') else 0.47
 
         variant = 'general_engage'
         if intent in ('payment_crypto_help', 'crypto_info', 'shipping_time', 'tracking', 'faq_order_process') and has_knowledge:
             variant = 'real_answer'
-        elif random.random() < 0.3:
+        elif random.random() < 0.35:
             variant = 'attract_value'
-        if has_history and random.random() < 0.4:
+        if has_history and random.random() < 0.45:
             variant = 'funnel'
 
         addon = self.variants.get(variant, self.variants['general_engage'])
-        max_t = 110
+        # Force complete replies: 3-6 lines natural text
+        max_t = 320 if has_knowledge or has_history else 240
+
+        # Stronger instruction addon
+        completeness = " جواب کامل و طبیعی بده (۳ تا ۶ خط محاوره‌ای با فعل و نقطه). مثل یه آدم واقعی حرف بزن. جملات رو کامل کن."
+        addon = addon + completeness
 
         return {
             'system_addon': addon,
@@ -605,7 +611,7 @@ class ModelDirector:
             'temperature': temp,
             'max_tokens': max_t,
             'variant': variant,
-            'notes': f"Directed for {variant} | think={use_think} | grounded={has_knowledge}"
+            'notes': f"Directed for {variant} | grounded={has_knowledge}"
         }
 
 
@@ -677,10 +683,12 @@ WEAK_LLM_PATTERNS = [
     r'نمی\s*دانم', r"i\s*don't\s*know", r'فقط\s*ترون', r'only\s*tron',
     r'مدفارماوب', r'\bimed\b', r'\bsara\b', r'فقط بگو', r'لیست', r'^\s*۱\.',
     r'قطعا|حتما|۱۰۰٪|بدون شک|دقیقا همین',
+    r'^(بله|نه|آره|خیر)\s*$', r'^\s*[\.؟!]{1,3}\s*$',
+    r'برای سفارش|به سایت|لطفاً به', r'پیام بده به', r'ادمین',
 ]
 
 def is_weak_llm_output(text: str, language: str = 'fa') -> bool:
-    if not text or len(text.strip()) < 6:
+    if not text or len(text.strip()) < 18:
         return True
     t = text.lower()
     for pat in WEAK_LLM_PATTERNS:
@@ -689,7 +697,9 @@ def is_weak_llm_output(text: str, language: str = 'fa') -> bool:
     lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
     if len(lines) >= 2 and len(set(lines)) == 1:
         return True
-    # over-confident nonsense or robotic
+    # Too short or single sentence without depth for group chat
+    if len(text) < 45 and text.count('.') + text.count('؟') + text.count('!') < 1:
+        return True
     if re.search(r'قطعا|حتما|۱۰۰٪|بدون شک|دقیقا همین', t):
         return True
     return False
@@ -749,15 +759,18 @@ FEW_SHOT_BANK = [
     ("کاهش وزن چی بزنم؟", "اوزمپیک (سماگلوتاید) و مونجارو (تیرزپاتید) الان خیلی رایجن. ولی باید با دکتر هماهنگ باشی."),
     ("ارسال به دبی چقدر طول میکشه؟", "دبی هم سریعه معمولاً، ۶-۱۲ ساعت بعد تأیید. بسته کاملاً محرمانه میاد."),
     ("چطور میتونم TRC20 بخرم؟", "از نوبیتکس یا والکس USDT بخر، بعد روی آدرس TRC20 که بهت داده میشه انتقال بده. ساده‌ست."),
+    ("سلام بچه‌ها", "سلام. کسی اینجا تجربه خرید از خارج داره؟"),
+    ("برای تمرکز چی خوبه؟", "مودافینیل یا ریتالین بسته به شرایط. من مودافینیل رو برای کار طولانی تست کردم خوبه."),
+    ("پرداخت با کریپتو امن هست؟", "بله اگر شبکه درست انتخاب کنی. TRC20 کم ریسک‌تره و سریع. خودم چند بار زدم مشکلی نبود."),
 ]
 
-def get_few_shots_for_prompt(query: str, k: int = 2) -> str:
+def get_few_shots_for_prompt(query: str, k: int = 3) -> str:
     q = (query or "").lower()
     scored = []
     for ex_q, ex_a in FEW_SHOT_BANK:
-        sc = sum(1 for w in q.split() if w and w in ex_q.lower())
+        sc = sum(1 for w in q.split() if w and len(w) > 1 and w in ex_q.lower())
         if sc:
-            scored.append((sc, f"مثال واقعی: کاربر پرسید «{ex_q}»\nجواب طبیعی: {ex_a}"))
+            scored.append((sc, f"کاربر: «{ex_q}»\nپاسخ طبیعی: «{ex_a}»"))
     scored.sort(reverse=True)
     return "\n".join([s[1] for s in scored[:k]]) if scored else ""
 
