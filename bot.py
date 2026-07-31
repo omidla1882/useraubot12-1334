@@ -91,71 +91,71 @@ session_name = 'my_session'
 
 # 🎛️ حالت کاری Railway (انتخاب یکی)
 # eco = حداقل مصرف منابع | normal = متعادل | performance = حداکثر کارایی
-RAILWAY_MODE = 'eco'  # 🟢 برای سرور Railway حتماً eco باشد
+RAILWAY_MODE = 'normal'  # � حالت normal برای فعالیت بیشتر
 
-# مدیریت صف (Queue Management) - سبک‌تر برای Railway
-MAX_QUEUE_SIZE = 100 if RAILWAY_MODE == 'eco' else 200  # کاهش RAM
-MAX_CONCURRENT_TASKS = 1 if RAILWAY_MODE == 'eco' else 2  # 🔒 کاهش به 1 تسک همزمان
-MESSAGE_BATCH_SIZE = 1 if RAILWAY_MODE == 'eco' else 2  # 🔒 کاهش به 1 پیام در هر بچ
+# مدیریت صف (Queue Management)
+MAX_QUEUE_SIZE = 200
+MAX_CONCURRENT_TASKS = 3
+MESSAGE_BATCH_SIZE = 2
 
-# مدیریت تاخیر (Delay Management) - بهینه‌سازی شده برای کاهش ریسک بن ⚠️
-BASE_DELAY = (60, 120) if RAILWAY_MODE == 'eco' else (30, 60)  # 🔒 افزایش شدید
-FLOOD_WAIT_MULTIPLIER = 3.0  # 🔒 افزایش ضریب FloodWait
-MAX_RETRY_ATTEMPTS = 1 if RAILWAY_MODE == 'eco' else 1  # 🔒 فقط 1 تلاش مجدد
-RETRY_DELAY = (300, 600) if RAILWAY_MODE == 'eco' else (180, 360)  # 🔒 افزایش تاخیر
+# مدیریت تاخیر (Delay Management)
+BASE_DELAY = (15, 35)
+FLOOD_WAIT_MULTIPLIER = 1.5
+MAX_RETRY_ATTEMPTS = 3
+RETRY_DELAY = (30, 90)
 
-# مدیریت کانال (Channel Management) - بهینه‌سازی شده ⚠️
-MAX_CHANNELS_PER_SESSION = 80 if RAILWAY_MODE == 'eco' else 120  # 🔒 کاهش شدید
-CHANNEL_JOIN_DELAY = (120, 240) if RAILWAY_MODE == 'eco' else (60, 120)  # 🔒 افزایش تاخیر
+# مدیریت کانال (Channel Management)
+MAX_CHANNELS_PER_SESSION = 150
+CHANNEL_JOIN_DELAY = (20, 45)
 
-# محدودیت‌های روزانه (Daily Limits) - بهینه‌سازی شده برای کاهش ریسک بن ⚠️
-DAILY_PM_LIMIT = 10 if RAILWAY_MODE == 'eco' else 15  # 🔒 کاهش شدید برای امنیت
-DAILY_JOIN_LIMIT = 15 if RAILWAY_MODE == 'eco' else 25  # 🔒 کاهش شدید - حداکثر 15 عضویت در روز
-DAILY_MESSAGE_LIMIT = 50 if RAILWAY_MODE == 'eco' else 80  # 🔒 کاهش برای امنیت
-CHANNEL_CLEANUP_INTERVAL = 1800 if RAILWAY_MODE == 'eco' else 3600  # پاکسازی سریع‌تر
+# محدودیت‌های روزانه (Daily Limits)
+DAILY_PM_LIMIT = 40
+DAILY_JOIN_LIMIT = 50
+DAILY_MESSAGE_LIMIT = 200
+CHANNEL_CLEANUP_INTERVAL = 3600
 
-# مدیریت حافظه (Memory Management) - بهینه برای Railway
-MAX_HISTORY_SIZE = 200 if RAILWAY_MODE == 'eco' else 500  # کاهش RAM
-MEMORY_CLEANUP_INTERVAL = 180 if RAILWAY_MODE == 'eco' else 300  # پاکسازی سریع‌تر
-MAX_SCRAPED_USERS = 500 if RAILWAY_MODE == 'eco' else 1000  # محدودیت کاربران
-MAX_GROUPS_IN_MEMORY = 100 if RAILWAY_MODE == 'eco' else 200  # محدودیت گروه‌ها
+# مدیریت حافظه (Memory Management)
+MAX_HISTORY_SIZE = 500
+MEMORY_CLEANUP_INTERVAL = 300
+MAX_SCRAPED_USERS = 1000
+MAX_GROUPS_IN_MEMORY = 200
 
-# تنظیمات Member Adder - بهینه شده برای Railway ⚔️
+# تنظیمات Member Adder ⚔️
 # ═══════════════════════════════════════════════════════════
 TARGET_GROUP = "@PharmaWebGp"  # گروه هدف برای اضافه کردن اعضا
 GROUP_LINK = "https://t.me/PharmaWebGp"  # لینک دعوت گروه
 
-# 🚀 تنظیمات Scraping - بهینه‌سازی شده برای کاهش ریسک بن ⚠️
-MEMBER_FETCH_LIMIT = 50 if RAILWAY_MODE == 'eco' else 100  # 🔒 کاهش شدید (از 150)
-MEMBER_SCRAPE_INTERVAL = 600 if RAILWAY_MODE == 'eco' else 300  # 🔒 افزایش به 10 دقیقه
-SCRAPE_MULTIPLE_GROUPS = 1 if RAILWAY_MODE == 'eco' else 2  # 🔒 کاهش به 1-2 گروه
+# 🚀 تنظیمات Scraping
+MEMBER_FETCH_LIMIT = 150
+MEMBER_SCRAPE_INTERVAL = 180
+SCRAPE_MULTIPLE_GROUPS = 3
 
-# ⚔️ تنظیمات Direct Add - بهینه‌سازی شده برای کاهش ریسک بن ⚠️
-INVITE_DELAY_MIN = 120 if RAILWAY_MODE == 'eco' else 90  # 🔒 افزایش به 2 دقیقه حداقل
-INVITE_DELAY_MAX = 300 if RAILWAY_MODE == 'eco' else 180  # 🔒 افزایش به 5 دقیقه حداکثر
-MAX_INVITES_PER_CYCLE = 2 if RAILWAY_MODE == 'eco' else 3  # 🔒 کاهش شدید
-INVITE_CYCLE_INTERVAL = 600 if RAILWAY_MODE == 'eco' else 300  # 🔒 افزایش به 10 دقیقه
-DAILY_INVITE_TARGET = 50 if RAILWAY_MODE == 'eco' else 80  # 🔒 کاهش واقع‌بینانه
+# ⚔️ تنظیمات Direct Add
+INVITE_DELAY_MIN = 30
+INVITE_DELAY_MAX = 60
+MAX_INVITES_PER_CYCLE = 5
+INVITE_CYCLE_INTERVAL = 120
+DAILY_INVITE_TARGET = 100
 
-# 📨 تنظیمات PM - بهینه‌سازی شده برای کاهش ریسک بن ⚠️
-PM_DELAY_MIN = 300 if RAILWAY_MODE == 'eco' else 180  # 🔒 افزایش به 5 دقیقه حداقل
-PM_DELAY_MAX = 600 if RAILWAY_MODE == 'eco' else 360  # 🔒 افزایش به 10 دقیقه حداکثر
-MAX_PM_PER_CYCLE = 1 if RAILWAY_MODE == 'eco' else 2  # 🔒 کاهش شدید
+# 📨 تنظیمات PM
+PM_DELAY_MIN = 60
+PM_DELAY_MAX = 120
+MAX_PM_PER_CYCLE = 3
 
 # ═══════════════════════════════════════════════════════════
 # 📢 تنظیمات Reliable Broadcast Controller (از examplebot ادغام شده - کلیدی برای تاخیرهای طولانی و ایمن)
 # این مقادیر طولانی و تطبیقی هستند تا ریسک بن به شدت کاهش یابد.
 # ═══════════════════════════════════════════════════════════
-BROADCAST_MAX_PER_HOUR = 4 if RAILWAY_MODE == 'eco' else 6   # ULTRA conservative - long delays to survive
-BROADCAST_MAX_PER_DAY = 28 if RAILWAY_MODE == 'eco' else 40
-BROADCAST_MIN_GLOBAL_INTERVAL = 900  # حداقل 15 دقیقه بین هر ارسال (very safe)
-BROADCAST_PER_GROUP_COOLDOWN_MIN = 1800   # 30 دقیقه حداقل per group
-BROADCAST_PER_GROUP_COOLDOWN_MAX = 3600   # 60 دقیقه حداکثر per group (highly variable)
-BROADCAST_POST_SEND_MIN = 720
-BROADCAST_POST_SEND_MAX = 1500   # 12-25 min post-send human-like rest
-BROADCAST_BATCH_SIZE = 1 if RAILWAY_MODE == 'eco' else 2
-BROADCAST_BATCH_REST_MIN = 1800
-BROADCAST_BATCH_REST_MAX = 3600   # 30-60 min batch rest (ban-prevention)
+BROADCAST_MAX_PER_HOUR = 12
+BROADCAST_MAX_PER_DAY = 80
+BROADCAST_MIN_GLOBAL_INTERVAL = 180  # حداقل 3 دقیقه بین هر ارسال
+BROADCAST_PER_GROUP_COOLDOWN_MIN = 300   # 5 دقیقه حداقل per group
+BROADCAST_PER_GROUP_COOLDOWN_MAX = 600   # 10 دقیقه حداکثر per group
+BROADCAST_POST_SEND_MIN = 60
+BROADCAST_POST_SEND_MAX = 180   # 1-3 دقیقه post-send
+BROADCAST_BATCH_SIZE = 3
+BROADCAST_BATCH_REST_MIN = 300
+BROADCAST_BATCH_REST_MAX = 600   # 5-10 دقیقه batch rest
 
 # 🎯 فیلترینگ هوشمند
 ACTIVE_DAYS_THRESHOLD = 28  # فقط اعضای فعال در 2 هفته اخیر
@@ -653,7 +653,7 @@ GROUP_AI_TIMEOUT_SECONDS = 75     # زمان بیشتر برای مدل کند C
 # Never allow rapid or consecutive messages in the same group.
 # Enforced for handle_group_ai, observer, starters, and funnels.
 # ═══════════════════════════════════════════════════════════
-MIN_GROUP_BOT_INTERVAL = 600  # 10 minutes minimum between ANY bot message in same group
+MIN_GROUP_BOT_INTERVAL = 120  # 2 minutes minimum between ANY bot message in same group
 last_group_bot_send: Dict[int, float] = {}  # gid -> last unix time we sent (reply/starter/funnel)
 
 def can_send_to_group_safely(gid: int) -> bool:
@@ -14460,7 +14460,7 @@ async def handle_group_ai(event):
         try:
             sender_id = event.sender_id or 0
             if sender_id and group_engager.should_consider_funnel(chat_id, sender_id):
-                await asyncio.sleep(random.uniform(780, 1620))  # long natural delay
+                await asyncio.sleep(random.uniform(120, 300))  # تاخیر طبیعی funnel
                 if not can_send_to_group_safely(chat_id):
                     return
                 funnel_ctx = "\n".join([t for _, t in list(group_exchange_history[chat_id])[-5:]])
@@ -14534,7 +14534,7 @@ async def generate_pm_funnel_msg(recent_ctx: str, exchange_count: int = 3, chat_
 
 # ── Strengthened Proactive Natural Engagement (observer) ─────────────────────
 PROACTIVE_ENABLED = True
-PROACTIVE_MAX_PER_GROUP_DAY = 4   # LOW to prevent spam (sporadic = human). Max ~4 meaningful actions/day/group.
+PROACTIVE_MAX_PER_GROUP_DAY = 20   # افزایش برای فعالیت بیشتر
 _proactive_counters: Dict[int, int] = defaultdict(int)
 _proactive_day = date.today()
 
@@ -14569,7 +14569,7 @@ CONVERSATION_STARTERS = [
 
 # Track last starter time per group to avoid posting too often
 _last_starter_time: Dict[int, float] = {}
-_starter_min_interval = 7200  # at least 2h between starters per group
+_starter_min_interval = 900  # حداقل 15 دقیقه بین starters per group
 
 async def _post_conversation_starter(gid: int) -> bool:
     """CENTRALIZED: Use engager.generate_starter for fully intelligent dynamic starters."""
@@ -14632,8 +14632,8 @@ async def group_observer_task():
             candidates = random.sample(groups, min(10, len(groups)))
             acted = False
 
-            # Mode 2: ~30% chance — post conversation starter in a random group
-            if random.random() < 0.30:
+            # Mode 2: ~50% chance — post conversation starter in a random group
+            if random.random() < 0.50:
                 starter_candidates = [
                     g for g in candidates
                     if _proactive_counters.get(g, 0) < PROACTIVE_MAX_PER_GROUP_DAY
@@ -14646,7 +14646,7 @@ async def group_observer_task():
                     if ok:
                         _proactive_counters[gid] += 1
                         acted = True
-                        await asyncio.sleep(random.uniform(300, 600))
+                        await asyncio.sleep(random.uniform(60, 120))
 
             if not acted:
                 # Mode 1: Reply to a specific user's message
@@ -14734,8 +14734,8 @@ async def group_observer_task():
                         resp = await group_engager.generate_valuable_reply(gid, target_msg, enriched_ctx)
 
                         if resp and is_high_quality_natural(resp) and len(resp) > 10 and not _is_repetitive_or_similar(gid, resp):
-                            # Human randomness: often skip even good replies to avoid appearing active
-                            if random.random() < 0.45:
+                            # Human randomness: گاهی skip برای طبیعی‌تر بودن
+                            if random.random() < 0.20:
                                 continue
 
                             await asyncio.sleep(random.uniform(20, 70))
@@ -14763,7 +14763,7 @@ async def group_observer_task():
 
                             # Phase 2: Use engager's funnel decision
                             if group_engager.should_consider_funnel(gid, target_uid):
-                                await asyncio.sleep(random.uniform(900, 1800))
+                                await asyncio.sleep(random.uniform(120, 300))
                                 if can_send_to_group_safely(gid):
                                     ctx_for_funnel = "\n".join([t for _, t in list(group_exchange_history[gid])[-5:]])
                                     funnel_msg = await generate_pm_funnel_msg(ctx_for_funnel, count, chat_id=gid)
@@ -14774,7 +14774,7 @@ async def group_observer_task():
                                         slog(f"📩 PM funnel → uid={target_uid} gid={gid}")
 
                             acted = True
-                            await asyncio.sleep(random.uniform(300, 600))
+                            await asyncio.sleep(random.uniform(60, 120))
                             break
 
                     except (ChatWriteForbiddenError, ChannelPrivateError, UserBannedInChannelError):
@@ -14783,12 +14783,12 @@ async def group_observer_task():
                         continue
 
             if acted:
-                await asyncio.sleep(random.randint(400, 900))  # longer human-like pause after action
+                await asyncio.sleep(random.randint(60, 180))  # pause after action
             else:
-                await asyncio.sleep(random.randint(180, 420))  # base loop slower to avoid bursts
+                await asyncio.sleep(random.randint(30, 90))  # base loop interval
 
         except Exception:
-            await asyncio.sleep(180)
+            await asyncio.sleep(60)
 
 
 async def run_ai_self_test(num_tests: int = 6) -> dict:
