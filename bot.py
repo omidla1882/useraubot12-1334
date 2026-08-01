@@ -699,22 +699,22 @@ def record_group_bot_send(gid: int):
 # 📨 ارسال پیام خصوصی (PM) به کاربران
 # True = فعال | False = غیرفعال
 # ⚠️ ریسک: بالا - ممکن است منجر به PeerFlood یا UserBanned شود
-ENABLE_PM_SENDING = False  # 🟢 غیرفعال برای جلوگیری از بن
+ENABLE_PM_SENDING = True  # 🟢 غیرفعال برای جلوگیری از بن
 
 # ➕ اضافه کردن مستقیم اعضا به گروه (Direct Add/Invite)
-# True = فعال | False = غیرفعال  
+# True = فعال | True = غیرفعال  
 # ⚠️ ریسک: خیلی بالا - ممکن است منجر به FloodWait طولانی یا بن شود
-ENABLE_DIRECT_ADD = False  # 🔴 غیرفعال - بسیار خطرناک برای حساب کاربر
+ENABLE_DIRECT_ADD = True  # 🔴 غیرفعال - بسیار خطرناک برای حساب کاربر
 
 # 🔍 جستجو و عضویت در گروه‌های جدید
 # True = فعال | False = غیرفعال
 # ⚠️ ریسک: متوسط - ممکن است منجر به ChannelsTooMuch شود
-ENABLE_GROUP_SEARCH = False  # 🔴 غیرفعال - ریسک بن سریع
+ENABLE_GROUP_SEARCH = True  # 🔴 غیرفعال - ریسک بن سریع
 
 # 👥 جمع‌آوری اطلاعات اعضا از گروه‌ها (Scraping)
 # True = فعال | False = غیرفعال
 # ⚠️ ریسک: پایین تا متوسط
-ENABLE_MEMBER_SCRAPING = False  # 🔴 غیرفعال - ریسک تشخیص و بن
+ENABLE_MEMBER_SCRAPING = True  # 🔴 غیرفعال - ریسک تشخیص و بن
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🧹 سیستم مدیریت گروه‌های کم‌عضو (LOW MEMBER GROUP MANAGEMENT)
