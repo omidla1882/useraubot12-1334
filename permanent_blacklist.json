@@ -2,13 +2,17 @@
   "blacklist": [
     1494272835,
     2055288167,
+    1233509897,
     3516149901,
+    3125519662,
     1748937998,
     1534408305,
     1173842579,
     2315530708,
     1832045719,
     1773045176,
+    1547005946,
+    2945882747,
     1116845180,
     3400121086
   ],
@@ -78,8 +82,32 @@
       "timestamp": 1782263975.7366693,
       "username": "Arya_sabadgardani",
       "title": "\"انجمن سهامداران اصلی غدانه\""
+    },
+    "2945882747": {
+      "reason": "no_write_access",
+      "timestamp": 1785599279.128084,
+      "username": "tabligh2025tajrobh",
+      "title": "دیوار ایرانیان خارج از کشور"
+    },
+    "1547005946": {
+      "reason": "no_write_access",
+      "timestamp": 1785599279.7352815,
+      "username": "vbehdasht_iran",
+      "title": "جامعه علوم پزشکی کشور"
+    },
+    "3125519662": {
+      "reason": "no_write_access",
+      "timestamp": 1785599285.7203052,
+      "username": "mortezasoleimani108300",
+      "title": "دکتر مرتضی سلیمانی انتخابات نظام پزشکی"
+    },
+    "1233509897": {
+      "reason": "no_write_access",
+      "timestamp": 1785600604.792491,
+      "username": "panahande_fa",
+      "title": "پناهندگی و ویزای بشردوستانه"
     }
   },
-  "last_updated": 1785583469.722082,
-  "count": 11
+  "last_updated": 1785600672.4776018,
+  "count": 15
 }
