@@ -8,7 +8,7 @@
   },
   "network_discovery": {
     "high_value_keywords": [],
-    "group_count": 9
+    "group_count": 3
   },
   "quality_predictor": {
     "feature_weights": {
@@ -24,6 +24,6 @@
   "smart_selector": {
     "time_performance": {}
   },
-  "saved_at": 1785606632.8125598,
-  "total_groups_joined": 29
+  "saved_at": 1785611769.1964712,
+  "total_groups_joined": 2
 }
