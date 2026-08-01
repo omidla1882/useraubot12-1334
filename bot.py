@@ -14638,6 +14638,7 @@ async def group_observer_task():
     """
     global _proactive_day
     await asyncio.sleep(90)
+    print(f"🧠 Observer task started - groups available: {len(groups)}", flush=True)
 
     while True:
         try:
