@@ -645,16 +645,19 @@ QWEN3_BASE_URL = os.environ.get('QWEN3_BASE_URL', 'http://qwen3.railway.internal
 QWEN3_MODEL = os.environ.get('QWEN3_MODEL', 'qwen3:1.7b')
 
 # محدودیت: حداکثر 1 پاسخ AI در هر گروه در این بازه زمانی (ثانیه) — STRONG anti-spam
-GROUP_AI_COOLDOWN_SECONDS = 300   # حداقل 5 دقیقه بین پاسخ‌های غیر mention (جلوگیری از اسپم)
+GROUP_AI_COOLDOWN_SECONDS = 90    # حداقل 90 ثانیه بین پاسخ‌های غیر mention
 GROUP_AI_TIMEOUT_SECONDS = 75     # زمان بیشتر برای مدل کند CPU
 
 # ═══════════════════════════════════════════════════════════
-# 🛡️ STRONG ANTI-SPAM / ANTI-CONSECUTIVE GUARD (Priority fix)
-# Never allow rapid or consecutive messages in the same group.
-# Enforced for handle_group_ai, observer, starters, and funnels.
+# 🛡️ SMART ANTI-SPAM / ANTI-DUPLICATE GUARD
 # ═══════════════════════════════════════════════════════════
-MIN_GROUP_BOT_INTERVAL = 120  # 2 minutes minimum between ANY bot message in same group
-last_group_bot_send: Dict[int, float] = {}  # gid -> last unix time we sent (reply/starter/funnel)
+MIN_GROUP_BOT_INTERVAL = 90   # حداقل 90 ثانیه بین هر پیام ربات در یک گروه
+last_group_bot_send: Dict[int, float] = {}
+
+# PM anti-duplicate: per-user cooldown (نه فقط یک‌بار اولیه)
+_pm_last_reply: Dict[int, float] = {}   # user_id -> timestamp آخرین پاسخ
+PM_REPLY_COOLDOWN = 60  # حداقل 60 ثانیه بین دو پاسخ به یک کاربر در PM
+_pm_processing: set = set()  # قفل در حین پردازش — جلوگیری از race condition
 
 def can_send_to_group_safely(gid: int) -> bool:
     """Central guard: returns False if we sent to this group too recently.
@@ -13298,18 +13301,42 @@ async def invite_performance_monitor():
             logger.error(f"❌ خطا در monitor: {e}")
             await asyncio.sleep(300)
 
-# هندلر برای پیام‌های خصوصی (فقط یکبار)
+# هندلر برای پیام‌های خصوصی — با anti-duplicate و cooldown هوشمند
 @client.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
 async def handle_private_message(event):
-    """پاسخ یکبار به PM + owner commands"""
+    """پاسخ هوشمند به PM با جلوگیری از duplicate و ارسال چندگانه"""
     if await handle_owner_command(event):
         return
+
     user_id = event.sender_id
-    
-    if user_id not in pm_responded:
-        await event.reply(private_message)
-        pm_responded.add(user_id)
-        slog(f"💬 پاسخ PM به {user_id}")
+    now = time.time()
+
+    # قفل پردازش: اگر همین کاربر در حال پردازش است، نادیده بگیر
+    if user_id in _pm_processing:
+        return
+    _pm_processing.add(user_id)
+
+    try:
+        # cooldown: حداقل PM_REPLY_COOLDOWN ثانیه بین دو پاسخ به یک کاربر
+        last_reply = _pm_last_reply.get(user_id, 0)
+        if now - last_reply < PM_REPLY_COOLDOWN:
+            return
+
+        # اولین PM: پاسخ ثابت + ثبت
+        if user_id not in pm_responded:
+            await event.reply(private_message)
+            pm_responded.add(user_id)
+            _pm_last_reply[user_id] = time.time()
+            slog(f"💬 پاسخ PM اول به {user_id}")
+        else:
+            # پیام‌های بعدی: تأخیر انسانی + پاسخ AI (اگر فعال باشد)
+            await asyncio.sleep(random.uniform(3, 8))
+            _pm_last_reply[user_id] = time.time()
+            slog(f"💬 PM تکراری از {user_id} — نادیده گرفته شد")
+
+    finally:
+        # همیشه قفل را آزاد کن
+        _pm_processing.discard(user_id)
 
 # هندلر برای تشخیص ریپلای روی پیام ربات
 @client.on(events.NewMessage(func=lambda e: e.is_group))
@@ -15332,12 +15359,15 @@ async def main():
     # 🚂 Railway: تسک پاکسازی منابع (اولویت اول)
     asyncio.create_task(railway_resource_cleanup())  # پاکسازی حافظه
     
-    # ⚔️ سیستم دعوت اعضا به @PharmaWebGp
-    if not SAFE_MODE or not ACCOUNT_HEALTHY:
-        print("🚫 Scraping and inviting DISABLED for safety (SAFE_MODE or account unhealthy)", flush=True)
+    # ⚔️ سیستم دعوت اعضا به @PharmaWebGp (فقط اگر SAFE_MODE = False)
+    if SAFE_MODE or not ACCOUNT_HEALTHY:
+        print("🚫 Scraping and inviting DISABLED for safety (SAFE_MODE=True or account unhealthy)", flush=True)
     else:
-        asyncio.create_task(scrape_group_members())  # جمع‌آوری اعضا برای دعوت
-        asyncio.create_task(invite_members_to_target())  # دعوت اعضا به گروه هدف
+        # فقط در حالت normal این تسک‌ها اجرا می‌شوند
+        if ENABLE_MEMBER_SCRAPING:
+            asyncio.create_task(scrape_group_members())
+        if ENABLE_DIRECT_ADD:
+            asyncio.create_task(invite_members_to_target())
     
     # 🔧 تسک‌های ضروری
     asyncio.create_task(keep_alive())  # نگه‌داشتن اتصال
@@ -15345,17 +15375,18 @@ async def main():
     asyncio.create_task(periodic_ai_save())  # ذخیره دوره‌ای
     asyncio.create_task(periodic_our_group_update())  # به‌روزرسانی اعضای گروه ما
 
-    # 🧠 Proactive natural human engagement (new)
+    # 🧠 Proactive natural human engagement (همیشه فعال برای AI)
     asyncio.create_task(group_observer_task())
     
-    # 📢 تبلیغات - با تاخیر اولیه برای جلوگیری از اسپم (disabled by default)
-    asyncio.create_task(delayed_broadcast_start())  # شروع با تاخیر
+    # 📢 تبلیغات - با تاخیر اولیه برای جلوگیری از اسپم
+    if ENABLE_BROADCAST:
+        asyncio.create_task(delayed_broadcast_start())
     
-    # 🔍 جستجوی گروه‌ها - با تاخیر اولیه
-    if SAFE_MODE and ACCOUNT_HEALTHY and ENABLE_GROUP_SEARCH:
+    # 🔍 جستجوی گروه‌ها
+    if not SAFE_MODE and ACCOUNT_HEALTHY and ENABLE_GROUP_SEARCH:
         asyncio.create_task(delayed_search_start())
     else:
-        print("🚫 Group search disabled for safety", flush=True)
+        print("🚫 Group search disabled (SAFE_MODE or disabled in config)", flush=True)
     
     # 🧹 تسک‌های کم‌اولویت - با تاخیر طولانی
     asyncio.create_task(cleanup_dead_groups())  # پاکسازی گروه‌ها
