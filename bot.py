@@ -15457,7 +15457,7 @@ async def main():
     global responder
     responder = ProfessionalGroupResponder(client, QWEN3_BASE_URL, QWEN3_MODEL, GROUP_AI_TIMEOUT_SECONDS)
     
-    # شروع کلاینت تلگرام — retry loop تا ۳۰ دقیقه برای session conflict در Railway
+    # شروع کلاینت تلگرام — retry برای conflict موقت؛ AuthKeyDuplicated دائمی است
     # Web server already running above → healthcheck passes during all retries
     _started = False
     _attempt = 0
@@ -15473,8 +15473,21 @@ async def main():
         except Exception as _e:
             _err = str(_e)
             print(f"❌ Telethon start error (attempt {_attempt}): {_err[:200]}", flush=True)
-            if 'two different IP' in _err or 'AuthKeyDuplicated' in _err or 'authorization key' in _err.lower():
-                # Exponential backoff: 60, 90, 120, 150, 180, 180, 180 ...
+            # AuthKeyDuplicated is permanent — retrying the same session never recovers
+            if 'AuthKeyDuplicated' in _err or (
+                'authorization key' in _err.lower() and 'two different IP' in _err
+            ):
+                print(
+                    "💀 FATAL: TELETHON_SESSION_STRING is permanently invalidated (AuthKeyDuplicated). "
+                    "Generate a NEW session with: python3 generate_session.py "
+                    "then update Railway TELETHON_SESSION_STRING and redeploy. "
+                    "Do NOT use the same session from two IPs.",
+                    flush=True,
+                )
+                # Keep health server alive; sleep then exit so Railway restarts after env update
+                await asyncio.sleep(300)
+                sys.exit(1)
+            if 'two different IP' in _err or 'authorization key' in _err.lower():
                 _wait = min(60 + (_attempt - 1) * 30, 180)
                 print(f"⏳ Session conflict — waiting {_wait}s (total={_total_waited}s)...", flush=True)
                 await asyncio.sleep(_wait)
