@@ -82,8 +82,8 @@ def slog(*args, **kwargs):
         print(*args, **kwargs)
 
 # تنظیمات API
-api_id = 22673181
-api_hash = 'f38a65c5e43bdb451ca7db65151a8551'
+api_id = 21709804
+api_hash = 'e6d904c195bee4c8a2c570767e0a51d1'
 session_name = 'my_session'
 
 # ═══════════════════════════════════════════════════════════
@@ -208,7 +208,7 @@ RATE_ADJUSTMENT_INTERVAL = 1800  # هر 30 دقیقه بررسی و تنظیم
 # برای غیرفعال کردن ارسال تبلیغات: False
 # برای فعال کردن ارسال تبلیغات: True
 # ═══════════════════════════════════════════════════════════
-ENABLE_BROADCAST = False  # 🟢 ارسال پیام‌های تبلیغاتی فعال شد
+ENABLE_BROADCAST = True  # 🟢 ارسال پیام‌های تبلیغاتی فعال شد
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 🧠 PROFESSIONAL NATURAL AI + HUMAN SIM (ported + adapted from web3test best practices)
