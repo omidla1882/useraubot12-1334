@@ -714,12 +714,36 @@ def is_weak_llm_output(text: str, language: str = 'fa') -> bool:
 
 
 def repair_llm_output(text: str, language: str = 'fa') -> str:
-    """Strong repair for small-model hallucinations (port + extension from web3test model_guard)."""
+    """Strong repair for small-model hallucinations — must NEVER break real links."""
     if not text:
         return text
-    # Brand fixes (from reference)
+    # Restore broken leftovers: فارماوب.com → medpharmaweb.com
+    text = re.sub(r'فارماوب\.(com|shop|icu)\b', r'medpharmaweb.\1', text, flags=re.I)
+    text = re.sub(r'\bpharmaweb\.(com|shop|icu)\b', r'medpharmaweb.\1', text, flags=re.I)
+
+    protected = []
+
+    def _stash(m):
+        protected.append(m.group(0))
+        return f"«LINK{len(protected)-1}»"
+
+    text = re.sub(
+        r'https?://[^\s<>\[\]\(\)]+|t\.me/[A-Za-z0-9_+/.-]+|@[A-Za-z][A-Za-z0-9_]{3,31}|'
+        r'(?:www\.)?medpharmaweb\.(?:com|shop|icu)\b',
+        _stash,
+        text,
+        flags=re.I,
+    )
+
     text = text.replace('مدفارماوب', 'فارماوب')
-    text = re.sub(r'medpharmaweb|imed|sara', 'فارماوب', text, flags=re.I)
+    text = text.replace('مد فارماوب', 'فارماوب')
+    text = re.sub(r'\bimed\b', 'فارماوب', text, flags=re.I)
+    text = re.sub(r'\bsara\b', 'فارماوب', text, flags=re.I)
+    text = re.sub(r'\bmedpharmaweb\b', 'medpharmaweb.com', text, flags=re.I)
+
+    for i, val in enumerate(protected):
+        text = text.replace(f'«LINK{i}»', val)
+
     # "only tron" fix — we accept 8 cryptos
     if re.search(r'فقط\s*ترون|only\s*tron', text, re.I):
         if language == 'fa':
@@ -740,7 +764,15 @@ def repair_llm_output(text: str, language: str = 'fa') -> str:
             clean.append(ln)
     text = '\n'.join(clean)
     if len(text) > 650:
-        text = text[:650].rsplit(' ', 1)[0] + '…'
+        cut = text[:650]
+        if ' ' in cut:
+            cut = cut.rsplit(' ', 1)[0]
+        # Avoid ending on a mangled domain fragment
+        if re.search(r'(https?://\S*|t\.me/\S*|@\w+|medpharmaweb\.\w+|فارماوب\.\w+)$', cut, flags=re.I):
+            cut = cut.rsplit(' ', 1)[0] if ' ' in cut else cut
+        text = cut.rstrip(' ،,.-') + '…'
+    # One more restore pass after truncate
+    text = re.sub(r'فارماوب\.(com|shop|icu)\b', r'medpharmaweb.\1', text, flags=re.I)
     return text.strip()
 
 

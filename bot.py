@@ -436,13 +436,64 @@ def _clean_natural(text: str) -> str:
     return _persian_normalize('\n'.join(lines))
 
 
+def _fix_brand_and_links(text: str) -> str:
+    """Fix brand hallucinations WITHOUT breaking real URLs / @usernames / t.me links."""
+    if not text:
+        return text
+    # Restore already-broken leftovers from older buggy repair
+    text = _re.sub(r'فارماوب\.(com|shop|icu)\b', r'medpharmaweb.\1', text, flags=_re.I)
+    text = _re.sub(r'\bpharmaweb\.(com|shop|icu)\b', r'medpharmaweb.\1', text, flags=_re.I)
+
+    # Protect real links / mentions so brand rewrite cannot mangle them
+    protected = []
+
+    def _stash(m):
+        protected.append(m.group(0))
+        return f"«LINK{len(protected)-1}»"
+
+    # Full URLs, t.me paths, @usernames, official domains
+    text = _re.sub(
+        r'https?://[^\s<>\[\]\(\)]+|t\.me/[A-Za-z0-9_+/.-]+|@[A-Za-z][A-Za-z0-9_]{3,31}|'
+        r'(?:www\.)?medpharmaweb\.(?:com|shop|icu)\b',
+        _stash,
+        text,
+        flags=_re.I,
+    )
+
+    # Hallucinated brand-only tokens (not domains)
+    text = text.replace('مدفارماوب', 'فارماوب')
+    text = text.replace('مد فارماوب', 'فارماوب')
+    text = _re.sub(r'\bimed\b', 'فارماوب', text, flags=_re.I)
+    text = _re.sub(r'\bsara\b', 'فارماوب', text, flags=_re.I)
+    # Bare "medpharmaweb" without TLD → keep as readable site mention
+    text = _re.sub(r'\bmedpharmaweb\b', 'medpharmaweb.com', text, flags=_re.I)
+
+    # Unstash
+    for i, val in enumerate(protected):
+        text = text.replace(f'«LINK{i}»', val)
+    return text
+
+
+def _safe_truncate(text: str, limit: int = 620) -> str:
+    """Truncate without cutting through a URL / username / domain."""
+    if not text or len(text) <= limit:
+        return text
+    cut = text[:limit]
+    # If we sliced inside a link-ish token, back up to previous whitespace
+    if _re.search(r'(https?://\S*|t\.me/\S*|@\w+|medpharmaweb\.\w+)$', cut, flags=_re.I):
+        cut = cut.rsplit(' ', 1)[0]
+    else:
+        # Prefer word boundary
+        if ' ' in cut:
+            cut = cut.rsplit(' ', 1)[0]
+    return cut.rstrip(' ،,.-') + '…'
+
+
 def _repair_group_output(text: str) -> str:
     """Aggressive repair for small-model hallucinations and garbage (major anti-AI-tell hardening)."""
     if not text:
         return text
-    # Fix brand hallucinations
-    text = text.replace('مدفارماوب', 'فارماوب')
-    text = _re.sub(r'medpharmaweb|imed|sara', 'فارماوب', text, flags=_re.I)
+    text = _fix_brand_and_links(text)
     # Fix "only tron" hallucination
     text = _re.sub(r'فقط\s*ترون[^.\n]*', '۸ ارز دیجیتال قبول می‌کنیم (از جمله USDT روی TRC20)', text, flags=_re.I)
     text = _re.sub(r'only\s*tron[^.\n]*', 'We accept 8 cryptos (incl. USDT on TRC20)', text, flags=_re.I)
@@ -466,8 +517,9 @@ def _repair_group_output(text: str) -> str:
     text = '\n'.join(clean_lines)
     # Strip leading "آره خودم گرفتم" spam loops
     text = _re.sub(r'^(آره!?\s*خودم گرفتم[،.!\s]*){1,3}', '', text, flags=_re.I).strip()
-    if len(text) > 620:
-        text = text[:620].rsplit(' ', 1)[0] + '…'
+    text = _safe_truncate(text, 620)
+    # Final link integrity pass (in case truncation/garbage left orphans)
+    text = _fix_brand_and_links(text)
     return text.strip()
 
 
