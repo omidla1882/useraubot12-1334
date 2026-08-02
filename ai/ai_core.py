@@ -237,6 +237,14 @@ def classify_intent(message: str) -> Dict:
         intent = 'tracking'
         confidence = 0.92
 
+    # ADHD / concentration / weight drug queries → product_search
+    if intent == 'unknown' and re.search(
+        r'(adhd|بیش.?فعال|ریتالین|کونسرتا|مودافینیل|اوزمپیک|مونجارو|کاهش.?وزن|تمرکز)',
+        msg_lower, re.I
+    ):
+        intent = 'product_search'
+        confidence = 0.86
+
     return {
         'intent': intent,
         'confidence': confidence,
@@ -598,16 +606,16 @@ class ModelDirector:
             variant = 'funnel'
 
         addon = self.variants.get(variant, self.variants['general_engage'])
-        # Force complete replies: 3-6 lines natural text
-        max_t = 320 if has_knowledge or has_history else 240
+        # Force complete replies but keep CPU-friendly token budgets
+        max_t = 160 if has_knowledge or has_history else 120
 
         # Stronger instruction addon
-        completeness = " جواب کامل و طبیعی بده (۳ تا ۶ خط محاوره‌ای با فعل و نقطه). مثل یه آدم واقعی حرف بزن. جملات رو کامل کن."
+        completeness = " جواب کامل و طبیعی بده (۲ تا ۵ خط محاوره‌ای). مثل یه آدم واقعی حرف بزن."
         addon = addon + completeness
 
         return {
             'system_addon': addon,
-            'use_think': use_think,
+            'use_think': False,
             'temperature': temp,
             'max_tokens': max_t,
             'variant': variant,

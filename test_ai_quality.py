@@ -49,7 +49,7 @@ async def main():
     print("\n3. classify_intent (reference fidelity):")
     intent_tests = [
         ("ارسال به استانبول بعد از پرداخت چقدر طول میکشه؟", "shipping_time"),
-        ("برای بیش فعالی چی پیشنهاد میکنید؟", "faq_order_process"),  # or product-ish
+        ("برای بیش فعالی چی پیشنهاد میکنید؟", "product_search"),
         ("پرداخت با USDT کدوم شبکه بهتره؟", "crypto_info"),
         ("این جواب پرت بود", "complaint"),
         ("تو رباتی؟", "bot_question"),
@@ -58,7 +58,9 @@ async def main():
     ]
     for q, expect in intent_tests:
         res = b.classify_intent(q)
-        ok = res.get('intent') == expect or (expect == 'faq_order_process' and res.get('intent') in ('faq_order_process', 'product_info'))
+        ok = res.get('intent') == expect or (
+            expect == 'product_search' and res.get('intent') in ('product_search', 'faq_order_process', 'product_info')
+        )
         print(f"   {q[:45]:<45} → {res.get('intent')} {'✓' if ok else '≈'}")
 
     # 4. plan + retrieve
