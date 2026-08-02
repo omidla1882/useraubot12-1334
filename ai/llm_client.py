@@ -37,9 +37,9 @@ class Qwen3Client:
         self.model = os.getenv('QWEN3_MODEL', os.getenv('OLLAMA_MODEL', 'qwen3:1.7b'))
         # Align with bot outer wait_for (~70s); CPU 1.7b is slow
         self.timeout = float(os.getenv('QWEN3_TIMEOUT', '90'))
-        self.default_max_tokens = int(os.getenv('QWEN3_MAX_TOKENS', '160'))
+        self.default_max_tokens = int(os.getenv('QWEN3_MAX_TOKENS', '100'))
         self.default_temperature = float(os.getenv('QWEN3_TEMPERATURE', '0.42'))
-        self.default_num_ctx = int(os.getenv('QWEN3_NUM_CTX', '2048'))
+        self.default_num_ctx = int(os.getenv('QWEN3_NUM_CTX', '1024'))
 
     async def is_available(self) -> bool:
         try:

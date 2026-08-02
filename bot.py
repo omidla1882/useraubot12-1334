@@ -707,6 +707,8 @@ GROUP_AI_COOLDOWN_SECONDS = int(os.environ.get('GROUP_AI_COOLDOWN_SECONDS', '90'
 GROUP_AI_TIMEOUT_SECONDS = int(os.environ.get('GROUP_AI_TIMEOUT_SECONDS', '70'))
 # LLM runtime stats (for !status)
 _llm_stats = {'yes': 0, 'no': 0, 'errors': 0, 'last_error': '', 'last_latency': 0.0}
+_llm_last_call_ts = 0.0
+_LLM_MIN_GAP_SECONDS = float(os.environ.get('LLM_MIN_GAP_SECONDS', '12'))
 
 # ═══════════════════════════════════════════════════════════
 # 🛡️ SMART ANTI-SPAM / ANTI-DUPLICATE GUARD
@@ -14310,7 +14312,7 @@ async def call_qwen3_natural(recent_ctx: list, user_text: str, chat_id: int = No
     Lightweight professional pipeline tuned for CPU qwen3:1.7b.
     Prefer real LLM; fall back to grounded local/template only on failure.
     """
-    global _llm_stats
+    global _llm_stats, _llm_last_call_ts
     if USE_AI_CORE and _core_classify:
         intent_info = _core_classify(user_text)
     else:
@@ -14353,33 +14355,33 @@ async def call_qwen3_natural(recent_ctx: list, user_text: str, chat_id: int = No
     except Exception:
         director_cfg = {'temperature': 0.42, 'max_tokens': 160, 'system_addon': ''}
 
-    # Cap tokens/ctx for CPU latency
+    # Cap tokens/ctx for CPU latency — keep tiny for qwen3:1.7b
     temp = float(director_cfg.get('temperature', 0.42))
-    max_tokens = min(int(director_cfg.get('max_tokens', 160)), 180 if high_value else 140)
-    num_ctx = int(os.environ.get('QWEN3_NUM_CTX', '2048'))
-    dir_addon = director_cfg.get('system_addon', '') or ''
+    max_tokens = min(int(director_cfg.get('max_tokens', 120)), 120 if high_value else 90)
+    num_ctx = int(os.environ.get('QWEN3_NUM_CTX', '1024'))
+    dir_addon = (director_cfg.get('system_addon', '') or '')[:180]
 
     few_shots = ""
     try:
-        if USE_AI_CORE:
+        if USE_AI_CORE and high_value:
             from ai.ai_core import get_few_shots_for_prompt as _fs
-            few_shots = _fs(user_text, k=2)
+            few_shots = _fs(user_text, k=1)
     except Exception:
         pass
 
-    exchange_lines = [f"{r}: {t[:80]}" for r, t in list(group_exchange_history.get(chat_id, []))[-3:]]
-    notes = get_group_notes(chat_id) if chat_id else ""
+    exchange_lines = [f"{r}: {t[:60]}" for r, t in list(group_exchange_history.get(chat_id, []))[-2:]]
+    notes = ""
     mem_ctx = ""
     try:
         uid = int(sender_id or 0)
-        mem_ctx = get_user_context(chat_id, uid) if chat_id else ""
+        mem_ctx = (get_user_context(chat_id, uid) or '')[:120] if chat_id else ""
     except Exception:
         pass
 
     messages = build_group_messages(
         user_text=user_text,
-        retrieved=retrieved or "",
-        recent_ctx=recent_ctx or [],
+        retrieved=(retrieved or "")[:220],
+        recent_ctx=(recent_ctx or [])[:2],
         exchange_lines=exchange_lines,
         notes=notes,
         mem_ctx=mem_ctx,
@@ -14390,60 +14392,73 @@ async def call_qwen3_natural(recent_ctx: list, user_text: str, chat_id: int = No
     llm_result = None
     raw = ""
     llm_err = ""
-    # Never enable think by default — kills CPU latency. Only if caller forces use_think.
-    think_flag = bool(use_think)
+    think_flag = False  # never on CPU path
 
-    try:
-        if _qwen3_client is not None:
-            t0 = time.time()
-            res = await asyncio.wait_for(
-                _qwen3_client.chat(
-                    messages,
-                    max_tokens=max_tokens,
-                    temperature=temp,
-                    use_think=think_flag,
-                    num_ctx=num_ctx,
-                ),
-                timeout=float(GROUP_AI_TIMEOUT_SECONDS),
-            )
-            raw = (res.get("content") or res.get("raw") or "").strip()
-            _llm_stats['last_latency'] = round(time.time() - t0, 2)
-    except Exception as e:
-        llm_err = f"{type(e).__name__}: {e}"
-        _llm_stats['errors'] += 1
-        _llm_stats['last_error'] = llm_err[:180]
-        try:
-            log_ai_response(f"LLM_ERR intent={intent} gid={chat_id} {llm_err[:120]}", "", "")
-        except Exception:
-            pass
+    # Skip LLM under pressure: min gap + recent timeout streak → grounded/templates only
+    now_ts = time.time()
+    skip_llm = False
+    if (now_ts - _llm_last_call_ts) < _LLM_MIN_GAP_SECONDS:
+        skip_llm = True
+        llm_err = 'rate_limited'
+    elif _llm_stats.get('errors', 0) >= 3 and _llm_stats.get('yes', 0) == 0 and 'Timeout' in (_llm_stats.get('last_error') or ''):
+        # After cold timeouts, only try LLM on high_value mentions to avoid queue meltdown
+        if not high_value:
+            skip_llm = True
+            llm_err = 'cooldown_after_timeout'
 
-    if not raw:
+    if not skip_llm:
+        _llm_last_call_ts = now_ts
         try:
-            http_timeout = aiohttp.ClientTimeout(total=max(30, GROUP_AI_TIMEOUT_SECONDS - 5))
-            async with aiohttp.ClientSession(timeout=http_timeout) as s:
-                pp = {
-                    "model": QWEN3_MODEL,
-                    "messages": messages,
-                    "stream": False,
-                    "think": False,
-                    "options": {
-                        "temperature": temp,
-                        "num_predict": max_tokens,
-                        "num_ctx": num_ctx,
-                        "top_p": 0.88,
-                        "repeat_penalty": 1.12,
-                    },
-                }
-                async with s.post(f"{QWEN3_BASE_URL}/api/chat", json=pp) as rr:
-                    if rr.status == 200:
-                        dd = await rr.json(content_type=None)
-                        raw = (dd.get('message', {}).get('content') or '').strip()
-                    else:
-                        llm_err = f"http_{rr.status}"
+            if _qwen3_client is not None:
+                t0 = time.time()
+                res = await asyncio.wait_for(
+                    _qwen3_client.chat(
+                        messages,
+                        max_tokens=max_tokens,
+                        temperature=temp,
+                        use_think=think_flag,
+                        num_ctx=num_ctx,
+                    ),
+                    timeout=float(GROUP_AI_TIMEOUT_SECONDS),
+                )
+                raw = (res.get("content") or res.get("raw") or "").strip()
+                _llm_stats['last_latency'] = round(time.time() - t0, 2)
         except Exception as e:
-            llm_err = llm_err or f"{type(e).__name__}: {e}"
+            llm_err = f"{type(e).__name__}: {e}"
             _llm_stats['errors'] += 1
-            _llm_stats['last_error'] = str(e)[:180]
+            _llm_stats['last_error'] = llm_err[:180]
+            try:
+                log_ai_response(f"LLM_ERR intent={intent} gid={chat_id} {llm_err[:120]}", "", "")
+            except Exception:
+                pass
+
+        if not raw:
+            try:
+                http_timeout = aiohttp.ClientTimeout(total=max(25, min(55, GROUP_AI_TIMEOUT_SECONDS - 5)))
+                async with aiohttp.ClientSession(timeout=http_timeout) as s:
+                    pp = {
+                        "model": QWEN3_MODEL,
+                        "messages": messages,
+                        "stream": False,
+                        "think": False,
+                        "options": {
+                            "temperature": temp,
+                            "num_predict": max_tokens,
+                            "num_ctx": num_ctx,
+                            "top_p": 0.88,
+                            "repeat_penalty": 1.12,
+                        },
+                    }
+                    async with s.post(f"{QWEN3_BASE_URL}/api/chat", json=pp) as rr:
+                        if rr.status == 200:
+                            dd = await rr.json(content_type=None)
+                            raw = (dd.get('message', {}).get('content') or '').strip()
+                        else:
+                            llm_err = f"http_{rr.status}"
+            except Exception as e:
+                llm_err = llm_err or f"{type(e).__name__}: {e}"
+                _llm_stats['errors'] += 1
+                _llm_stats['last_error'] = str(e)[:180]
 
     if raw:
         cleaned = _clean_natural(raw)
@@ -14769,7 +14784,7 @@ async def generate_pm_funnel_msg(recent_ctx: str, exchange_count: int = 3, chat_
 
 # ── Strengthened Proactive Natural Engagement (observer) ─────────────────────
 PROACTIVE_ENABLED = True
-PROACTIVE_MAX_PER_GROUP_DAY = 20   # افزایش برای فعالیت بیشتر
+PROACTIVE_MAX_PER_GROUP_DAY = int(os.environ.get('PROACTIVE_MAX_PER_GROUP_DAY', '4'))
 _proactive_counters: Dict[int, int] = defaultdict(int)
 _proactive_day = date.today()
 
